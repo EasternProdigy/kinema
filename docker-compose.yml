@@ -1,0 +1,25 @@
+# Public demo deployment. Put it behind a reverse proxy that terminates HTTPS.
+services:
+  kinema-demo:
+    build: .
+    image: kinema-demo
+    ports:
+      - "8000:8000"
+    environment:
+      - KINEMA_READONLY=1
+      # Lock to your demo domain instead of allow-any-host (edit Dockerfile CMD too):
+      # - KINEMA_ALLOWED_HOSTS=kinema-demo.example.com
+    restart: unless-stopped
+
+  # Example: run YOUR OWN library over the LAN (not the demo).
+  # Uncomment, set the volume to your media folder, and choose a password.
+  #
+  # kinema:
+  #   build: .
+  #   ports: ["8000:8000"]
+  #   volumes:
+  #     - /path/to/your/Videos:/media:ro
+  #   environment:
+  #     - KINEMA_PASSWORD=change-me
+  #   command: ["python","server.py","/media","--host","0.0.0.0","--no-open","--allow-any-host"]
+  #   restart: unless-stopped

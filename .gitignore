@@ -1,0 +1,24 @@
+# Kinema runtime state (generated locally — never commit)
+data/
+cache/
+*.log
+
+# Sample / demo libraries generated locally
+sample-library/
+demo-library/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.spec
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

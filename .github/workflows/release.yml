@@ -1,0 +1,114 @@
+name: Release
+
+# Build self-contained double-click bundles for Linux, macOS and Windows on each
+# tag (vX.Y.Z) and attach them to a GitHub Release. Each bundle includes a static
+# ffmpeg + ffprobe, so thumbnails work with ZERO install for the end user.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  name: linux,   sep: ":" }
+          - { os: macos-latest,   name: macos,   sep: ":" }
+          - { os: windows-latest, name: windows, sep: ";" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      # ---- fetch a static ffmpeg + ffprobe for this OS ----
+      - name: Fetch ffmpeg (Linux)
+        if: matrix.name == 'linux'
+        run: |
+          curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o ff.tar.xz
+          mkdir -p ffbin && tar -xf ff.tar.xz --strip-components=1 -C ffbin
+          echo "FF_FFMPEG=$PWD/ffbin/ffmpeg"   >> "$GITHUB_ENV"
+          echo "FF_FFPROBE=$PWD/ffbin/ffprobe" >> "$GITHUB_ENV"
+
+      - name: Fetch ffmpeg (macOS)
+        if: matrix.name == 'macos'
+        run: |
+          curl -L https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip  -o ffmpeg.zip
+          curl -L https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip -o ffprobe.zip
+          mkdir -p ffbin && unzip -o ffmpeg.zip -d ffbin && unzip -o ffprobe.zip -d ffbin
+          chmod +x ffbin/ffmpeg ffbin/ffprobe
+          echo "FF_FFMPEG=$PWD/ffbin/ffmpeg"   >> "$GITHUB_ENV"
+          echo "FF_FFPROBE=$PWD/ffbin/ffprobe" >> "$GITHUB_ENV"
+
+      - name: Fetch ffmpeg (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile ff.zip
+          Expand-Archive ff.zip -DestinationPath ffdir -Force
+          $bin = (Get-ChildItem -Recurse ffdir -Filter ffmpeg.exe | Select-Object -First 1).DirectoryName
+          "FF_FFMPEG=$bin\ffmpeg.exe"   | Out-File -FilePath $env:GITHUB_ENV -Append
+          "FF_FFPROBE=$bin\ffprobe.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # ---- build the standalone binary with ffmpeg bundled in ----
+      - name: Build (Unix)
+        if: matrix.name != 'windows'
+        run: |
+          pyinstaller --onefile --name kinema \
+            --add-data "web${{ matrix.sep }}web" \
+            --add-binary "${FF_FFMPEG}${{ matrix.sep }}." \
+            --add-binary "${FF_FFPROBE}${{ matrix.sep }}." \
+            server.py
+
+      - name: Build (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          pyinstaller --onefile --name kinema `
+            --add-data "web;web" `
+            --add-binary "$env:FF_FFMPEG;." `
+            --add-binary "$env:FF_FFPROBE;." `
+            server.py
+
+      - name: Stage package
+        shell: bash
+        run: |
+          mkdir -p stage
+          cp -r dist/* stage/
+          cp README.md LICENSE SECURITY.md NOTICE.md stage/
+          cp -r launchers stage/ 2>/dev/null || true
+
+      - name: Archive (Unix)
+        if: matrix.name != 'windows'
+        run: tar -C stage -czf kinema-${{ matrix.name }}.tar.gz .
+
+      - name: Archive (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: Compress-Archive -Path stage\* -DestinationPath kinema-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kinema-${{ matrix.name }}
+          path: kinema-${{ matrix.name }}.*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
