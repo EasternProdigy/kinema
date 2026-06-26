@@ -16,15 +16,16 @@ Please keep that spirit in mind for contributions.
 ```bash
 git clone https://github.com/EasternProdigy/kinema.git
 cd kinema
-python3 server.py ~/Videos      # run it
+python3 src/server.py ~/Videos    # run it  (or: ./scripts/run.sh)
 ```
 
-There's no compile step — edit files and refresh the browser tab.
+There's no compile step — edit `src/web/*` and refresh the browser tab. For auto-restart
+while hacking on the backend, use `./scripts/dev.sh` (it reloads when `src/server.py` changes).
 
 ## Before opening a PR
 
-- `python3 -m py_compile server.py` — no syntax errors.
-- `node --check web/app.js` (or any linter) — no JS syntax errors.
+- `python3 -m py_compile src/server.py` — no syntax errors.
+- `node --check src/web/app.js` (or any linter) — no JS syntax errors.
 - Manually test: browse, play, resume, PiP, and (if relevant) `--lan`, `--password`,
   `--read-only`.
 - Keep the diff focused and the code style consistent with what's there.
@@ -37,4 +38,4 @@ issues, follow [SECURITY.md](SECURITY.md) instead of filing a public issue.
 ## License
 
 By contributing you agree your contributions are licensed under the project's
-[MIT License](LICENSE).
+[MIT License](../LICENSE).

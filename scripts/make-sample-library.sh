@@ -34,4 +34,4 @@ mk "mandelbrot=size=854x480:rate=24"  15 "$OUT/Demo Movies/Fractal Voyage.mp4"
 mk "smptebars=size=854x480:rate=24"    8 "$OUT/Demo Movies/Color Bars Classic.mp4"
 
 echo "Sample library ready at: $OUT"
-echo "Try it read-only:  python3 server.py \"$OUT\" --read-only"
+echo "Try it read-only:  python3 src/server.py \"$OUT\" --read-only"

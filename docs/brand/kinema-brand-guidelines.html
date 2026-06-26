@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kinema — Brand Guidelines</title>
+<style>
+/* Bundled brand fonts (same files the app ships) ------------------------------ */
+@font-face { font-family:'Poppins'; font-weight:400; font-display:swap; src:url('../../src/web/fonts/poppins-400.woff2') format('woff2'); }
+@font-face { font-family:'Poppins'; font-weight:500; font-display:swap; src:url('../../src/web/fonts/poppins-500.woff2') format('woff2'); }
+@font-face { font-family:'Poppins'; font-weight:600; font-display:swap; src:url('../../src/web/fonts/poppins-600.woff2') format('woff2'); }
+@font-face { font-family:'Poppins'; font-weight:700; font-display:swap; src:url('../../src/web/fonts/poppins-700.woff2') format('woff2'); }
+@font-face { font-family:'IBM Plex Mono'; font-weight:400; font-display:swap; src:url('../../src/web/fonts/ibm-plex-mono-400.woff2') format('woff2'); }
+@font-face { font-family:'IBM Plex Mono'; font-weight:500; font-display:swap; src:url('../../src/web/fonts/ibm-plex-mono-500.woff2') format('woff2'); }
+
+:root{
+  --orange:#EE6722; --ember:#F5832F; --burnt:#EA5C20;
+  --grad:linear-gradient(135deg,var(--ember),var(--burnt));
+  --ink-900:#211915; --ink-700:#3d332c; --ink-500:#6f655d; --ink-300:#b8afa7; --ink-100:#e7e0d9;
+  --paper:#f7f4f1; --sand:#fbe9dd; --slate:#1e2a38; --success:#2fa969; --error:#e0524d;
+  --font:'Poppins',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:#eceae8;color:var(--ink-900);font:16px/1.55 var(--font);-webkit-font-smoothing:antialiased}
+
+/* Each "page" is a 1100-wide card, echoing the source PDF spreads. */
+.page{width:1100px;max-width:calc(100vw - 32px);margin:24px auto;background:#fff;border-radius:10px;
+      box-shadow:0 10px 30px rgba(33,25,21,.12);overflow:hidden}
+.pad{padding:64px 76px 76px}
+
+.eyebrow{font:600 14px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--orange);margin:0 0 18px}
+h2.title{font:700 52px/1 var(--font);letter-spacing:-.01em;margin:0;text-transform:lowercase}
+.sub{color:var(--ink-500);font-size:18px;margin:14px 0 0;max-width:760px}
+
+/* --- Cover --------------------------------------------------------------- */
+.cover{background:var(--grad);color:#fff;height:660px;position:relative;display:grid;place-items:center}
+.cover .lockup{display:flex;flex-direction:column;align-items:center;gap:6px}
+.cover .word{font:700 132px/1 var(--font);letter-spacing:-.02em;text-transform:lowercase}
+.cover .tag{font:500 30px/1 var(--font);opacity:.95;margin-top:6px}
+.cover .foot{position:absolute;left:76px;right:76px;bottom:48px;display:flex;justify-content:space-between;
+             font:600 17px/1 var(--font);opacity:.95}
+.cover .foot .mono{font-family:var(--mono);font-weight:500}
+
+/* --- Logo / the mark ----------------------------------------------------- */
+.tiles{display:flex;gap:22px;flex-wrap:wrap;margin:40px 0 18px}
+.tile{width:172px;text-align:center}
+.tile .sq{width:172px;height:130px;border-radius:14px;display:grid;place-items:center}
+.tile .lbl{font-weight:600;margin-top:12px;font-size:16px}
+.sq.primary{background:var(--grad)}
+.sq.reversed{background:#fff;border:1px solid var(--ink-100)}
+.sq.ink{background:#fff;border:1px solid var(--ink-100)}
+.sq.knockout{background:var(--slate)}
+.sq.flat{background:var(--orange)}
+.wordmark{display:flex;align-items:flex-end;gap:0;margin:36px 0 14px}
+.wordmark .w{font:700 92px/1 var(--font);letter-spacing:-.02em;text-transform:lowercase;color:var(--ink-900)}
+.note{color:var(--ink-500);font-size:16px;margin:8px 0 0;max-width:820px}
+
+/* --- Color --------------------------------------------------------------- */
+.swatches{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin:40px 0 14px}
+.swatch .chip{height:128px;border-radius:10px}
+.swatch h3{margin:16px 0 4px;font-size:19px}
+.swatch .meta{font:400 14px/1.4 var(--mono);color:var(--ink-500)}
+.scale{display:grid;grid-template-columns:repeat(6,1fr);gap:0;margin:30px 0 6px;border-radius:10px;overflow:hidden}
+.scale div{height:96px;display:flex;align-items:flex-end;padding:12px;font-weight:600;font-size:15px}
+.semhead{font-weight:600;margin:30px 0 14px;font-size:18px}
+.sem{display:grid;grid-template-columns:repeat(4,1fr);gap:22px}
+.sem div{height:92px;border-radius:10px;display:flex;align-items:flex-start;padding:14px;font-weight:600}
+
+/* --- Typography ---------------------------------------------------------- */
+.aa{font:700 200px/.9 var(--font);color:var(--orange);margin:28px 0 6px}
+.weights{color:var(--ink-500);font-size:16px;margin:0 0 30px}
+.typegrid{display:grid;grid-template-columns:200px 1fr;gap:6px 24px;align-items:baseline}
+.typegrid .k{font:400 14px/2.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-500)}
+.t-display{font:700 56px/1.05 var(--font);letter-spacing:-.01em}
+.t-h1{font:700 40px/1.1 var(--font)}
+.t-h2{font:600 28px/1.15 var(--font)}
+.t-body{font:400 18px/1.55 var(--font);color:var(--ink-700);max-width:560px}
+
+/* --- Voice --------------------------------------------------------------- */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin:40px 0 24px}
+.card{border:1px solid var(--ink-100);border-radius:12px;padding:24px}
+.card .n{font:400 14px/1 var(--mono);color:var(--orange);margin:0 0 16px}
+.card h4{margin:0 0 8px;font-size:20px}
+.card p{margin:0;color:var(--ink-500);font-size:16px}
+.says{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:8px}
+.say{border-radius:12px;padding:22px 24px}
+.say.do{background:#eef8f1;border:1px solid #cfe9d9}
+.say.dont{background:#fdeeed;border:1px solid #f6d6d4}
+.say .h{font:600 13px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;margin:0 0 14px}
+.say.do .h{color:var(--success)} .say.dont .h{color:var(--error)}
+.say p{margin:0 0 10px;font-size:17px;color:var(--ink-700)}
+.say p:last-child{margin:0}
+
+/* --- Brand in use -------------------------------------------------------- */
+.og{height:430px;border-radius:14px;background:var(--grad);color:#fff;display:flex;flex-direction:column;
+    justify-content:center;padding:0 70px;margin:40px 0 14px}
+.og .w{font:700 96px/1 var(--font);letter-spacing:-.02em;text-transform:lowercase}
+.og .tag{font:500 28px/1 var(--font);opacity:.95;margin-top:14px}
+.usefoot{display:flex;justify-content:space-between;align-items:flex-end;margin-top:42px;
+         padding-top:26px;border-top:1px solid var(--ink-100)}
+.usefoot .contact{text-align:right;color:var(--ink-500);font:500 16px/1.6 var(--mono)}
+.lockmini{display:flex;align-items:center;gap:14px}
+.lockmini .w{font:700 44px/1 var(--font);text-transform:lowercase;color:var(--ink-900)}
+
+@media (max-width:760px){
+  .pad{padding:40px 28px 48px}
+  .cover .word{font-size:84px}.cover .tag{font-size:22px}
+  .swatches,.sem,.cards,.says{grid-template-columns:1fr}
+  .scale{grid-template-columns:repeat(3,1fr)}
+  .typegrid{grid-template-columns:1fr}
+  .t-display{font-size:40px}.aa{font-size:140px}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="page cover">
+  <div class="lockup">
+    <div style="display:flex;align-items:center;gap:26px">
+      <svg viewBox="0 0 64 64" width="118" height="118" aria-hidden="true">
+        <rect x="2" y="2" width="60" height="60" rx="16" fill="rgba(255,255,255,.16)"/>
+        <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
+      </svg>
+      <span class="word">kinema</span>
+    </div>
+    <span class="tag">Your cinema, in a tab.</span>
+  </div>
+  <div class="foot">
+    <span>Brand Guidelines</span>
+    <span class="mono">v1.0 · kinema</span>
+  </div>
+</section>
+
+<!-- ============ 01 — LOGO ============ -->
+<section class="page"><div class="pad">
+  <p class="eyebrow">01 — Logo</p>
+  <h2 class="title">the mark</h2>
+  <p class="sub">A play triangle — press play on your own library. It rides in a warm gradient
+  tile, the same one that opens every Kinema window.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="sq primary"><svg viewBox="0 0 64 64" width="86" height="86"><path d="M26 21.5v21l18-10.5z" fill="#fff"/></svg></div><div class="lbl">Primary</div></div>
+    <div class="tile"><div class="sq reversed"><svg viewBox="0 0 64 64" width="86" height="86"><path d="M26 21.5v21l18-10.5z" fill="#EE6722"/></svg></div><div class="lbl">Reversed</div></div>
+    <div class="tile"><div class="sq ink"><svg viewBox="0 0 64 64" width="86" height="86"><path d="M26 21.5v21l18-10.5z" fill="#211915"/></svg></div><div class="lbl">Ink</div></div>
+    <div class="tile"><div class="sq knockout"><svg viewBox="0 0 64 64" width="86" height="86"><path d="M26 21.5v21l18-10.5z" fill="#fff"/></svg></div><div class="lbl">Knockout</div></div>
+    <div class="tile"><div class="sq flat"><svg viewBox="0 0 64 64" width="86" height="86"><path d="M26 21.5v21l18-10.5z" fill="#fff"/></svg></div><div class="lbl">Flat</div></div>
+  </div>
+
+  <div class="wordmark">
+    <svg viewBox="0 0 64 64" width="74" height="74" style="margin-right:18px" aria-hidden="true">
+      <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#g1)"/>
+      <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
+      <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F5832F"/><stop offset="1" stop-color="#EA5C20"/></linearGradient></defs>
+    </svg>
+    <span class="w">kinema</span>
+  </div>
+  <p class="note">Wordmark — lowercase “kinema”, ink on light · all-white on dark. The gradient
+  tile is the only place color lives in the logo; the wordmark stays monochrome. Clear space ≥ 12% of the tile width.</p>
+</div></section>
+
+<!-- ============ 02 — COLOR ============ -->
+<section class="page"><div class="pad">
+  <p class="eyebrow">02 — Color</p>
+  <h2 class="title">palette</h2>
+  <p class="sub">Orange is the signal color; a warm-neutral ink scale carries the rest. Shared
+  with the Pentarosa family so Kinema feels of-a-piece with mezi.</p>
+
+  <div class="swatches">
+    <div class="swatch"><div class="chip" style="background:#EE6722"></div><h3>Kinema Orange</h3><div class="meta">#EE6722 · RGB 238 103 34 · PMS ~165C</div></div>
+    <div class="swatch"><div class="chip" style="background:#F5832F"></div><h3>Ember</h3><div class="meta">#F5832F · gradient start</div></div>
+    <div class="swatch"><div class="chip" style="background:#EA5C20"></div><h3>Burnt</h3><div class="meta">#EA5C20 · gradient end</div></div>
+  </div>
+
+  <div class="scale">
+    <div style="background:#211915;color:#fff">900</div>
+    <div style="background:#3d332c;color:#fff">700</div>
+    <div style="background:#6f655d;color:#fff">500</div>
+    <div style="background:#b8afa7;color:#211915">300</div>
+    <div style="background:#e7e0d9;color:#211915">100</div>
+    <div style="background:#f7f4f1;color:#211915">Paper</div>
+  </div>
+
+  <p class="semhead">Supporting &amp; semantic</p>
+  <div class="sem">
+    <div style="background:#fbe9dd;color:#211915">Sand</div>
+    <div style="background:#1e2a38;color:#fff">Slate</div>
+    <div style="background:#2fa969;color:#fff">Success</div>
+    <div style="background:#e0524d;color:#fff">Error</div>
+  </div>
+</div></section>
+
+<!-- ============ 03 — TYPOGRAPHY ============ -->
+<section class="page"><div class="pad">
+  <p class="eyebrow">03 — Typography</p>
+  <h2 class="title">Poppins</h2>
+  <p class="sub">One geometric sans across product, marketing and docs. IBM Plex Mono for
+  figures, timecodes and durations.</p>
+
+  <div class="aa">Aa</div>
+  <p class="weights">400 Regular · 500 Medium · 600 SemiBold · 700 Bold</p>
+
+  <div class="typegrid">
+    <div class="k">Display 56/700</div><div class="t-display">Press play.</div>
+    <div class="k">H1 40/700</div><div class="t-h1">Your whole library</div>
+    <div class="k">H2 28/600</div><div class="t-h2">Resume where you left off</div>
+    <div class="k">Body 16/400</div><div class="t-body">Clear, human copy that tells you what a button does before it tells you anything else.</div>
+  </div>
+</div></section>
+
+<!-- ============ 04 — VOICE & TONE ============ -->
+<section class="page"><div class="pad">
+  <p class="eyebrow">04 — Voice &amp; Tone</p>
+  <h2 class="title">how kinema sounds</h2>
+  <p class="sub">Calm, plain-spoken, on the viewer’s side. It’s your stuff on your machine —
+  never hypey, never a streaming-service pitch.</p>
+
+  <div class="cards">
+    <div class="card"><p class="n">01</p><h4>Clear over clever</h4><p>Say what the button does. The useful thing first.</p></div>
+    <div class="card"><p class="n">02</p><h4>Calm, not flashy</h4><p>No countdowns, no “premium experience.” Just the video.</p></div>
+    <div class="card"><p class="n">03</p><h4>Human and direct</h4><p>Talk like the friend who set up your media server.</p></div>
+  </div>
+
+  <div class="says">
+    <div class="say do">
+      <p class="h">We say</p>
+      <p>“Point Kinema at a folder. Press play.”</p>
+      <p>“Your files stay on your machine.”</p>
+      <p>“Pop it out with Picture-in-Picture.”</p>
+    </div>
+    <div class="say dont">
+      <p class="h">We don’t</p>
+      <p>“Leverage our next-gen streaming platform.”</p>
+      <p>“Sign in to unlock your entertainment journey.”</p>
+      <p>“Buffering your premium experience…”</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- ============ 05 — BRAND IN USE ============ -->
+<section class="page"><div class="pad">
+  <p class="eyebrow">05 — Brand in use</p>
+  <h2 class="title">applications</h2>
+
+  <div class="og">
+    <div class="w">kinema</div>
+    <div class="tag">Your cinema, in a tab.</div>
+  </div>
+  <p class="note">Social / OG banner · 1200 × 630</p>
+
+  <div class="usefoot">
+    <div class="lockmini">
+      <svg viewBox="0 0 64 64" width="52" height="52" aria-hidden="true">
+        <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#g2)"/>
+        <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
+        <defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F5832F"/><stop offset="1" stop-color="#EA5C20"/></linearGradient></defs>
+      </svg>
+      <span class="w">kinema</span>
+    </div>
+    <div class="contact">opensource@mezi.app<br>github.com/EasternProdigy/kinema</div>
+  </div>
+</div></section>
+
+</body>
+</html>

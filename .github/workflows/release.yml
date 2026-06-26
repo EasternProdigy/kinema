@@ -63,27 +63,28 @@ jobs:
         if: matrix.name != 'windows'
         run: |
           pyinstaller --onefile --name kinema \
-            --add-data "web${{ matrix.sep }}web" \
+            --add-data "src/web${{ matrix.sep }}web" \
             --add-binary "${FF_FFMPEG}${{ matrix.sep }}." \
             --add-binary "${FF_FFPROBE}${{ matrix.sep }}." \
-            server.py
+            src/server.py
 
       - name: Build (Windows)
         if: matrix.name == 'windows'
         shell: pwsh
         run: |
           pyinstaller --onefile --name kinema `
-            --add-data "web;web" `
+            --add-data "src/web;web" `
             --add-binary "$env:FF_FFMPEG;." `
             --add-binary "$env:FF_FFPROBE;." `
-            server.py
+            src/server.py
 
       - name: Stage package
         shell: bash
         run: |
           mkdir -p stage
           cp -r dist/* stage/
-          cp README.md LICENSE SECURITY.md NOTICE.md stage/
+          cp README.md LICENSE stage/
+          cp docs/SECURITY.md docs/NOTICE.md stage/
           cp -r launchers stage/ 2>/dev/null || true
 
       - name: Archive (Unix)

@@ -14,12 +14,12 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile-check the server
-        run: python -m py_compile server.py
+        run: python -m py_compile src/server.py
       - name: Syntax-check the frontend
-        run: node --check web/app.js
+        run: node --check src/web/app.js
       - name: Boot smoke test
         run: |
-          python server.py --no-open --port 8011 &
+          python src/server.py --no-open --port 8011 &
           PID=$!
           for i in $(seq 1 30); do
             curl -sf "http://127.0.0.1:8011/api/session" >/dev/null && break

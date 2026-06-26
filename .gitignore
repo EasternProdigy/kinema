@@ -7,6 +7,9 @@ cache/
 sample-library/
 demo-library/
 
+# Bundled ffmpeg binaries (downloaded locally / by release CI — don't commit)
+bin/
+
 # Python
 __pycache__/
 *.py[cod]

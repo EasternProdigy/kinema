@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kinema</title>
+  <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- ===== Login (shown only when a password is set) ===== -->
+  <div id="loginOverlay" class="login-overlay hidden">
+    <form class="login-card" id="loginForm">
+      <div class="login-brand">
+        <span class="brand-tile">
+          <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+            <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
+          </svg>
+        </span>
+        <span>kinema</span>
+      </div>
+      <p class="muted">This library is password-protected.</p>
+      <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
+      <button class="btn primary" type="submit">Unlock</button>
+      <div class="login-error" id="loginError"></div>
+    </form>
+  </div>
+  <!-- ===== Top bar ===== -->
+  <header class="topbar">
+    <div class="brand" id="brand" title="Kinema — by Pentarosa Co.">
+      <span class="brand-tile">
+        <svg viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
+          <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
+        </svg>
+      </span>
+      <span class="brand-word">kinema</span>
+    </div>
+
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+
+    <div class="topbar-actions">
+      <div class="search-box" id="searchBox">
+        <span class="search-ic" data-icon="search"></span>
+        <input type="search" id="searchInput" placeholder="Search titles…" autocomplete="off"
+               spellcheck="false" aria-label="Search your library" />
+        <button class="search-clear" id="searchClear" data-icon="close" title="Clear search" aria-label="Clear search"></button>
+      </div>
+      <div class="size-toggle" id="sizeToggle" role="group" aria-label="Icon size">
+        <button class="size-btn" data-size="small" title="Small icons">S</button>
+        <button class="size-btn" data-size="medium" title="Medium icons">M</button>
+        <button class="size-btn" data-size="large" title="Large icons">L</button>
+      </div>
+      <button class="icon-btn" id="refreshBtn" title="Refresh">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v4h-4" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" title="Settings">
+        <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== Right-click context menu (rename / move / delete / new folder) ===== -->
+  <div id="ctxMenu" class="ctx-menu hidden"></div>
+
+  <!-- ===== Main library view ===== -->
+  <main id="library" class="library">
+    <section id="continueSection" class="row-section hidden">
+      <h2 class="row-title">Continue watching</h2>
+      <div class="grid continue-grid" id="continueGrid"></div>
+    </section>
+
+    <section id="mylistSection" class="row-section hidden">
+      <h2 class="row-title">My List</h2>
+      <div class="grid folder-grid" id="mylistGrid"></div>
+    </section>
+
+    <section id="folderSection" class="row-section hidden">
+      <h2 class="row-title" id="foldersTitle">Folders</h2>
+      <div class="grid folder-grid" id="folderGrid"></div>
+    </section>
+
+    <section id="videoSection" class="row-section hidden">
+      <h2 class="row-title" id="videosTitle">Videos</h2>
+      <div class="grid video-grid" id="videoGrid"></div>
+    </section>
+
+    <div id="emptyState" class="empty hidden"></div>
+  </main>
+
+  <!-- ===== Player overlay ===== -->
+  <div id="playerOverlay" class="player-overlay hidden">
+    <div class="player-stage" id="playerStage">
+      <video id="video" playsinline></video>
+
+      <!-- center play/pause shown when paused -->
+      <button class="big-play" id="bigPlay" data-icon="play" aria-label="Play"></button>
+
+      <!-- top bar -->
+      <div class="player-top" id="playerTop">
+        <div class="player-title" id="playerTitle"></div>
+        <div class="player-top-actions">
+          <button class="icon-round" id="playerClose" data-icon="close" title="Close (Esc)"></button>
+        </div>
+      </div>
+
+      <!-- bottom controls -->
+      <div class="player-ui" id="playerUi">
+        <div class="seek-row">
+          <span class="time" id="timeCur">0:00</span>
+          <div class="seek-wrap" id="seekWrap">
+            <span class="seek-tip" id="seekTip">0:00</span>
+            <input type="range" id="seek" class="seek" min="0" max="1000" value="0" step="1" aria-label="Seek" />
+          </div>
+          <span class="time" id="timeDur">0:00</span>
+        </div>
+
+        <div class="player-controls">
+          <div class="ctrl-group">
+            <button class="ctrl big" id="playPause" data-icon="play" title="Play/Pause (Space)"></button>
+            <button class="ctrl" id="prevBtn" data-icon="prev" title="Previous (Shift+P)"></button>
+            <button class="ctrl" id="nextBtn" data-icon="next" title="Next (Shift+N)"></button>
+            <button class="ctrl" id="back10" data-icon="back10" title="Back 10s (←)"></button>
+            <button class="ctrl" id="fwd10" data-icon="fwd10" title="Forward 10s (→)"></button>
+            <div class="vol-wrap">
+              <button class="ctrl" id="muteBtn" data-icon="volHigh" title="Mute (M)"></button>
+              <input type="range" id="volume" class="vol" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+            </div>
+          </div>
+
+          <div class="spacer"></div>
+
+          <div class="ctrl-group">
+            <div class="menu-wrap">
+              <button class="ctrl label" id="speedBtn" title="Playback speed">1×</button>
+              <div class="menu hidden" id="speedMenu">
+                <button data-rate="0.5">0.5×</button>
+                <button data-rate="0.75">0.75×</button>
+                <button data-rate="1" class="active">1× (normal)</button>
+                <button data-rate="1.25">1.25×</button>
+                <button data-rate="1.5">1.5×</button>
+                <button data-rate="2">2×</button>
+              </div>
+            </div>
+            <div class="menu-wrap hidden" id="qualityWrap">
+              <button class="ctrl label" id="qualityBtn" title="Video quality">Auto</button>
+              <div class="menu hidden" id="qualityMenu"></div>
+            </div>
+            <div class="menu-wrap hidden" id="ccWrap">
+              <button class="ctrl" id="ccBtn" data-icon="cc" title="Subtitles / captions (C)"></button>
+              <div class="menu hidden" id="ccMenu"></div>
+            </div>
+            <button class="ctrl" id="loopBtn" data-icon="loop" title="Loop (L)"></button>
+            <button class="ctrl" id="autoNext" data-icon="autoplay" title="Autoplay next episode"></button>
+            <button class="ctrl" id="pipBtn" data-icon="pip" title="Picture-in-Picture (P)"></button>
+            <button class="ctrl" id="fsBtn" data-icon="fullscreen" title="Fullscreen (F)"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Netflix-style next-up countdown card -->
+      <div class="next-card hidden" id="nextCard">
+        <button class="next-x" id="nextCancelBtn" data-icon="close" title="Cancel"></button>
+        <div class="next-label">Up next</div>
+        <div class="next-row">
+          <div class="next-thumb" id="nextThumbWrap">
+            <img id="nextThumb" alt="" />
+            <span class="next-thumb-play" data-icon="play"></span>
+          </div>
+          <div class="next-body">
+            <div class="next-title" id="nextTitle"></div>
+            <div class="next-sub" id="nextSub"></div>
+            <button class="btn next-play" id="nextPlayBtn"><span class="np-ic" data-icon="play"></span> Play now</button>
+          </div>
+        </div>
+        <div class="next-bar"><i id="nextBarFill"></i></div>
+      </div>
+
+      <div class="pip-hint hidden" id="pipHint"></div>
+
+      <!-- floating handle to reopen the panel when collapsed -->
+      <button class="queue-open hidden" id="queueOpen" data-icon="list" title="Show episodes &amp; seasons"></button>
+    </div>
+
+    <!-- Episodes / seasons rail -->
+    <aside class="queue" id="queue">
+      <div class="queue-head">
+        <span class="queue-title" id="queueTitle">Up next</span>
+        <button class="queue-collapse" id="queueCollapse" data-icon="chevronRight" title="Hide panel"></button>
+      </div>
+      <nav class="queue-nav" id="queueNav"></nav>
+      <div class="queue-folders" id="queueFolders"></div>
+      <div class="queue-list" id="queueList"></div>
+    </aside>
+  </div>
+
+  <!-- ===== Settings modal ===== -->
+  <div id="settingsModal" class="modal settings-modal hidden">
+    <div class="modal-card settings-card">
+      <div class="settings-accent" aria-hidden="true"></div>
+      <header class="settings-head">
+        <div class="settings-head-title">
+          <span class="settings-tile" data-icon="cog" aria-hidden="true"></span>
+          <div>
+            <h3>Settings</h3>
+            <p class="settings-sub">Kinema <span id="settingsVersion">1.0.0</span> · by Pentarosa Co.</p>
+          </div>
+        </div>
+        <button class="settings-x" id="settingsClose" data-icon="close" title="Close (Esc)" aria-label="Close settings"></button>
+      </header>
+
+      <div class="modal-body settings-body">
+        <!-- Library folders -->
+        <section class="settings-section">
+          <div class="section-head">
+            <span class="section-ic" data-icon="folder" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>Library folders</h4>
+              <p class="muted small">The folders Kinema watches. Everything stays on your machine.</p>
+            </div>
+            <span class="section-count" id="rootCount"></span>
+          </div>
+          <div id="rootList" class="root-list"></div>
+          <div class="add-root">
+            <button class="btn primary" id="browseRootBtn" data-icon-prefix="folderOpen">Add a folder…</button>
+          </div>
+          <details class="advanced-add">
+            <summary class="muted small">or type a path manually</summary>
+            <div class="add-root">
+              <input type="text" id="rootInput" placeholder="/home/you/Videos" />
+              <button class="btn" id="addRootBtn">Add</button>
+            </div>
+          </details>
+          <div id="settingsStatus" class="settings-status muted small"></div>
+        </section>
+
+        <!-- Server status -->
+        <section class="settings-section">
+          <div class="section-head">
+            <span class="section-ic" data-icon="info" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>This server</h4>
+              <p class="muted small">What's running and what's available right now.</p>
+            </div>
+          </div>
+          <div id="statGrid" class="stat-grid"></div>
+        </section>
+
+        <!-- Watch on other devices -->
+        <section class="settings-section">
+          <div class="section-head">
+            <span class="section-ic" data-icon="devices" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>Watch on other devices</h4>
+              <p class="muted small">Flip the switch and open a link on your phone or TV on the same Wi-Fi — no terminal, no restart.</p>
+            </div>
+          </div>
+          <div id="lanControl" class="lan-control"></div>
+          <div id="urlList" class="url-list"></div>
+        </section>
+
+        <!-- Keyboard shortcuts & tips -->
+        <section class="settings-section">
+          <div class="section-head">
+            <span class="section-ic" data-icon="keyboard" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>Keyboard shortcuts</h4>
+              <p class="muted small">While a video is playing.</p>
+            </div>
+          </div>
+          <div class="kbd-grid">
+            <div class="kbd-row"><span class="keys"><kbd>Space</kbd></span><span class="kbd-act">Play / pause</span></div>
+            <div class="kbd-row"><span class="keys"><kbd>←</kbd><kbd>→</kbd></span><span class="kbd-act">Seek 10 seconds</span></div>
+            <div class="kbd-row"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="kbd-act">Volume</span></div>
+            <div class="kbd-row"><span class="keys"><kbd>F</kbd></span><span class="kbd-act">Fullscreen</span></div>
+            <div class="kbd-row"><span class="keys"><kbd>M</kbd></span><span class="kbd-act">Mute</span></div>
+            <div class="kbd-row"><span class="keys"><kbd>L</kbd></span><span class="kbd-act">Loop</span></div>
+            <div class="kbd-row"><span class="keys"><kbd>P</kbd></span><span class="kbd-act">Picture-in-Picture</span></div>
+            <div class="kbd-row"><span class="keys"><kbd>Shift</kbd><kbd>N</kbd></span><span class="kbd-act">Next episode</span></div>
+            <div class="kbd-row"><span class="keys"><kbd>Shift</kbd><kbd>P</kbd></span><span class="kbd-act">Previous episode</span></div>
+          </div>
+          <ul class="tips muted small">
+            <li><b>Firefox PiP:</b> hover the playing video and click Firefox's own picture-in-picture toggle, or use the <b>⧉ PiP</b> button / press <b>P</b>.</li>
+            <li><b>Resume:</b> your position is saved automatically and synced across tabs.</li>
+            <li>Non-MP4/WebM files are remuxed on the fly when ffmpeg is available.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Generic dialog (rename / move / new folder / confirm) ===== -->
+  <div id="dialog" class="modal hidden">
+    <div class="modal-card small">
+      <div class="modal-head">
+        <h3 id="dialogTitle">Dialog</h3>
+        <button class="icon-btn" id="dialogClose">✕</button>
+      </div>
+      <div class="modal-body" id="dialogBody"></div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="dialogCancel">Cancel</button>
+        <button class="btn" id="dialogOk">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dropHint" class="drop-hint hidden">
+    <div class="drop-card" data-icon-prefix="folderOpen">Drop folders here to add them to your library</div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/qr.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

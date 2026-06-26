@@ -1,7 +1,11 @@
 # Public demo deployment. Put it behind a reverse proxy that terminates HTTPS.
+# Run from the project root:
+#   docker compose -f deploy/docker-compose.yml up --build
 services:
   kinema-demo:
-    build: .
+    build:
+      context: ..                    # build context = project root
+      dockerfile: deploy/Dockerfile
     image: kinema-demo
     ports:
       - "8000:8000"
@@ -15,11 +19,13 @@ services:
   # Uncomment, set the volume to your media folder, and choose a password.
   #
   # kinema:
-  #   build: .
+  #   build:
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
   #   ports: ["8000:8000"]
   #   volumes:
   #     - /path/to/your/Videos:/media:ro
   #   environment:
   #     - KINEMA_PASSWORD=change-me
-  #   command: ["python","server.py","/media","--host","0.0.0.0","--no-open","--allow-any-host"]
+  #   command: ["python","src/server.py","/media","--host","0.0.0.0","--no-open","--allow-any-host"]
   #   restart: unless-stopped
