@@ -20,6 +20,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from . import rt
+from . import cloud
 from .handler import Handler
 from .const import (
     APP_NAME, APP_VERSION, CACHE_DIR, CACHE_MAX_BYTES, CACHE_SWEEP_INTERVAL,
@@ -210,6 +211,11 @@ def main():
                         default=os.environ.get("KADMU_RATE_LIMIT") in ("0", "false", "no"),
                         help="disable per-IP request rate limiting (LAN peers only; "
                              "loopback is always exempt)")
+    parser.add_argument("--cloud", metavar="URL", default=os.environ.get("KADMU_CLOUD_URL"),
+                        help="run as a Kadmu Cloud tenant: the control-plane base URL "
+                             "(also needs --tenant and KADMU_CLOUD_SECRET)")
+    parser.add_argument("--tenant", metavar="ID", default=os.environ.get("KADMU_CLOUD_TENANT"),
+                        help="this node's Kadmu Cloud tenant id (from your dashboard)")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     args = parser.parse_args()
 
@@ -337,6 +343,19 @@ def main():
     rt.ALLOW_BROWSE = not args.no_browse
     rt.ALLOW_ANY_HOST = args.allow_any_host
 
+    # Cloud-attach (Phase 4a): become a Kadmu Cloud tenant when URL + tenant + secret
+    # are all present. The secret is read only from the environment, never from argv.
+    cloud_secret = os.environ.get("KADMU_CLOUD_SECRET", "")
+    if args.cloud and args.tenant and cloud_secret:
+        rt.CLOUD_ENABLED = True
+        rt.CLOUD_URL = args.cloud.rstrip("/")
+        rt.CLOUD_TENANT = args.tenant
+        rt.CLOUD_SECRET = cloud_secret
+        cloud.configure()      # load any persisted license so offline grace survives a restart
+    elif args.cloud or args.tenant or cloud_secret:
+        print("  NOTE: cloud-attach needs --cloud URL + --tenant ID + KADMU_CLOUD_SECRET "
+              "all set — running as plain self-host (fully unlocked).")
+
     if args.demo:
         demo_dir = STATE_DIR / "demo-library"
         print("  Preparing demo library (generating sample clips, one moment)...")
@@ -383,6 +402,10 @@ def main():
                   f"sign-ups {'open' if signup_open() else 'closed'})")
     else:
         print(f"  Login:   {'password required' if password_required() else 'none (anyone on an allowed host)'}")
+    if rt.CLOUD_ENABLED:
+        print(f"  Cloud:   tenant {rt.CLOUD_TENANT} @ {rt.CLOUD_URL} (subscription-gated)")
+        if not rt.ACCOUNTS_ENABLED:
+            print("           (tip: Kadmu Cloud is built for accounts — add --accounts)")
     print(f"  Mode:    {'DEMO (read-only)' if args.demo else ('READ-ONLY' if rt.READONLY else 'full control')}")
     print(f"  ffmpeg:  {FFMPEG or 'NOT found (thumbnails disabled)'}")
     if rt.TLS:
@@ -409,6 +432,9 @@ def main():
     # Build the search catalog in the background now that the roots are finalized,
     # so the first search is instant and complete.
     start_indexer()
+
+    # Cloud-attach: do an initial license check, then keep it fresh in the background.
+    cloud.start_poller()
 
     if not args.no_open:
         def _open():

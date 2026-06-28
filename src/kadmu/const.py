@@ -131,6 +131,7 @@ MYLIST_PATH = DATA_DIR / "mylist.json"
 META_CACHE_PATH = DATA_DIR / "meta_cache.json"
 PROFILES_PATH = DATA_DIR / "profiles.json"   # opt-in per-viewer id -> {"name"}
 DB_PATH = DATA_DIR / "kadmu.db"              # accounts mode (--accounts): users + per-user state
+CLOUD_LICENSE_PATH = DATA_DIR / "cloud_license.json"  # cloud-attach mode: cached signed license (offline grace)
 
 TRASH_DIRNAME = ".kadmu-trash"
 

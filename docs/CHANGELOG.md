@@ -44,6 +44,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   transcode/remux streams (`KADMU_USER_MAX_STREAMS`, default 3) plus a bandwidth meter — the
   groundwork for paid tiers. All standard-library only; defaults are tuned so a normal browser
   never trips the limiter.
+- **Kadmu Cloud — control-plane + cloud-attach (Phase 4a, scaffolded).** A new, separate
+  hosted layer under [`cloud/`](../cloud/README.md) — **not shipped to self-hosters** and
+  never needed to run the node. It's stdlib-only like the core (Stripe is reached over REST
+  with `urllib`, no SDK) and runs **end-to-end in MOCK mode with zero Stripe keys**:
+  marketing/landing + pricing + donate pages, **pay-first signup** (Stripe Checkout →
+  entitlement → access), the customer portal, **signature-verified webhooks** that keep
+  subscription state in sync, a subscriber **dashboard** (status + node connection details),
+  and a machine-to-machine **`/api/license`** endpoint that issues short-lived, **HS256-signed**
+  license tokens. The node can now run **cloud-attached** (`--cloud URL` / `--tenant ID` +
+  `KADMU_CLOUD_SECRET`, or the `KADMU_CLOUD_*` env vars): it fetches and verifies a license,
+  caches it on disk for an **offline-grace** window (survives brief cloud outages and even a
+  restart during one), and — only when cloud-attached and the subscription is inactive —
+  gates the instance with **HTTP 402** while still serving the app shell + `/api/session`, so
+  the UI shows a "Manage billing" notice and you can still sign in. **Default self-host is
+  completely unchanged and fully unlocked** (the gate is a no-op). Donations for the OSS side
+  are wired separately (one-time Checkout, no account needed).
 - **Multi-user accounts (opt-in, `--accounts`).** Real sign-in for households and shared
   boxes, backed by an embedded **SQLite** database (`sqlite3`, still standard-library only —
   no `pip`). Each person gets their **own** resume points, My List, playlists and display

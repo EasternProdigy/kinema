@@ -1,0 +1,21 @@
+# Kadmu Cloud control-plane — reverse proxy with automatic HTTPS (Caddy).
+# Replace cloud.example.com with your domain, then:
+#   caddy run --config cloud/infra/Caddyfile.example --adapter caddyfile
+#
+# Run the control-plane bound to localhost:
+#   KADMU_CLOUD_HOST=127.0.0.1 KADMU_CLOUD_PORT=8787 \
+#   KADMU_CLOUD_BASE_URL=https://cloud.example.com \
+#   python3 cloud/control-plane/server.py
+
+cloud.example.com {
+	encode zstd gzip
+
+	# Stripe needs the raw body to verify webhook signatures — Caddy proxies it
+	# verbatim, so nothing special is required here.
+	reverse_proxy 127.0.0.1:8787
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

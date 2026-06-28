@@ -25,3 +25,10 @@ TLS = False               # built-in HTTPS enabled (cert+key supplied via --tls 
 RATE_LIMIT = True         # per-IP request rate limiting on (loopback always exempt)
 LOG_REQUESTS = False      # emit one structured JSON log line per request
 ACCESS_LOG_PATH = None    # optional file the structured access log is appended to (else stdout)
+
+# Cloud-attach (Phase 4a): run this node as a Kadmu Cloud tenant. All off => plain
+# self-host, fully unlocked, entitlement gate is a no-op. See cloud.py.
+CLOUD_ENABLED = False      # True when URL + tenant + secret are all configured
+CLOUD_URL = ""             # control-plane base URL (e.g. https://cloud.kadmu.app)
+CLOUD_TENANT = ""          # this node's tenant id (provisioned in the dashboard)
+CLOUD_SECRET = ""          # the tenant secret (proves possession; never sent on the wire)

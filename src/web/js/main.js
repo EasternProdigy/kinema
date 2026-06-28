@@ -404,9 +404,15 @@ async function refreshSession() {
 function applySession() {
   const s = state.session;
   document.body.classList.toggle("readonly", !s.canManage);
+  if (typeof applyCloud === "function") applyCloud();   // cloud-attach entitlement (Phase 4a)
 }
 async function boot() {
   await refreshSession();
+  // A cloud-attached instance with an inactive subscription shows the billing notice
+  // ahead of the login screen (you can still sign in to reach Manage billing).
+  if (state.session.cloud && state.session.entitlement && !state.session.entitlement.active) {
+    applyCloud(); return;
+  }
   if (state.session.authRequired && !state.session.authed) { showLogin(); return; }
   hideLogin();
   applySession();

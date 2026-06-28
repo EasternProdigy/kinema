@@ -29,6 +29,7 @@ kadmu/
 │  └─ web/          the frontend: index.html · style.css · qr.js · js/*.js · fonts/
 ├─ scripts/        run.sh · dev.sh · demo.sh · make-sample-library.sh
 ├─ launchers/      double-click launchers (Linux/macOS/Windows) + install-linux.sh
+├─ cloud/          the HOSTED layer — NOT shipped to self-hosters (Phase 4; see cloud/README.md)
 ├─ deploy/         Dockerfile · docker-compose.yml · .env.example
 ├─ docs/           CONTRIBUTING · SECURITY · CHANGELOG · NOTICE · ROADMAP · BRAND.md + brand/
 ├─ install.sh / install.ps1   one-line installers (curl|bash / irm|iex)
@@ -96,6 +97,7 @@ concern into modules whose dependencies point downward (no import cycles):
 | `security` | Host/CSRF/auth, the legacy shared-password sessions + login throttle, password hashing, the LAN toggle |
 | `library` | directory listing, the folder browser, search + background index, the **home feed** (hero + recently-added), file ops (rename/move/delete-to-trash) |
 | `ops` | public-hardening & ops: in-memory metrics, structured request/error logging, the per-IP rate limiter, per-identity concurrent-stream accounting + the bandwidth meter (depends only on `const`/`rt`) |
+| `cloud` | **cloud-attach** (Phase 4a): poll the hosted control-plane for a signed license, verify it, cache it with offline grace, expose `entitlement_state()`/`entitlement_active()` for the gate. No-op unless run as a Kadmu Cloud tenant |
 | `party` | in-memory **watch-party** rooms — the SSE subscriber registry + broadcast fan-out of play/pause/seek/load state (stdlib only; rooms evaporate when empty) |
 | `handler` | the one `BaseHTTPRequestHandler` subclass and its route chains (incl. the watch-party SSE stream loop) |
 | `app` | the threaded server (optional built-in TLS), the cache/trash/session janitor, browser launch, and `main()` |
@@ -290,17 +292,21 @@ janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
 Flags: `[FOLDER ...]`, `--host`, `--port`, `--lan`, `--password`, `--read-only`, `--demo`,
 `--no-browse`, `--allowed-host` (repeatable), `--allow-any-host`, `--app`, `--kiosk`,
 `--no-open`, `--profiles`, `--accounts`, `--reset-password USERNAME`, `--tls CERT KEY`,
-`--log-requests`, `--no-rate-limit`, `--version`.
+`--log-requests`, `--no-rate-limit`, `--cloud URL`, `--tenant ID`, `--version`.
 `--accounts` turns on multi-user accounts (SQLite); `--reset-password USERNAME` resets/creates
 that account as admin (using `KADMU_NEW_PASSWORD`, else a printed random one) and exits.
 `--tls CERT KEY` serves built-in HTTPS; `--log-requests` emits structured per-request JSON logs;
 `--no-rate-limit` disables the per-IP limiter.
+`--cloud URL` + `--tenant ID` (+ the secret in `KADMU_CLOUD_SECRET`) run the node **cloud-attached**
+as a Kadmu Cloud tenant — subscription-gated via `kadmu.cloud` (Phase 4a); all three absent ⇒
+plain self-host, fully unlocked.
 Env equivalents read at startup: `KADMU_PASSWORD`, `KADMU_PORT`, `KADMU_READONLY`,
 `KADMU_PROFILES`, `KADMU_ACCOUNTS`, `KADMU_NEW_PASSWORD` (for `--reset-password`),
-`KADMU_LAUNCH_MODE` (`tab`/`app`/`kiosk`), `KADMU_CACHE_LIMIT_MB`, `KADMU_CACHE_TTL_SEC`,
-`KADMU_TRASH_TTL_DAYS` (auto-purge trash after N days; default 14), `KADMU_MAX_STREAMS`
-(concurrent live ffmpeg streams; default 5), `KADMU_INDEX_REFRESH_SEC` (background re-walk
-interval; default 300), `KADMU_ALLOWED_HOSTS`, `KADMU_FFMPEG`, `KADMU_FFPROBE`.
+`KADMU_CLOUD_URL` / `KADMU_CLOUD_TENANT` / `KADMU_CLOUD_SECRET` (cloud-attach; the secret is
+**env-only**, never a CLI arg), `KADMU_LAUNCH_MODE` (`tab`/`app`/`kiosk`), `KADMU_CACHE_LIMIT_MB`,
+`KADMU_CACHE_TTL_SEC`, `KADMU_TRASH_TTL_DAYS` (auto-purge trash after N days; default 14),
+`KADMU_MAX_STREAMS` (concurrent live ffmpeg streams; default 5), `KADMU_INDEX_REFRESH_SEC`
+(background re-walk interval; default 300), `KADMU_ALLOWED_HOSTS`, `KADMU_FFMPEG`, `KADMU_FFPROBE`.
 **Phase 3 ops:** `KADMU_TLS_CERT`/`KADMU_TLS_KEY` (built-in HTTPS), `KADMU_RATE_LIMIT` (0 to
 disable), `KADMU_RATE_RPS`/`KADMU_RATE_BURST` (per-IP token bucket; default 50/200),
 `KADMU_USER_MAX_STREAMS` (per-user/IP live-stream cap; default 3), `KADMU_REQUEST_TIMEOUT`

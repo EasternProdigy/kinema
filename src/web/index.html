@@ -37,6 +37,26 @@
     </form>
   </div>
 
+  <!-- ===== Kadmu Cloud — inactive-subscription notice (cloud-attach only) ===== -->
+  <div id="cloudOverlay" class="login-overlay hidden">
+    <div class="login-card">
+      <div class="login-brand">
+        <span class="brand-tile">
+          <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+            <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
+          </svg>
+        </span>
+        <span>kadmu</span>
+      </div>
+      <h2 class="login-h" id="cloudTitle">Subscription inactive</h2>
+      <p class="muted" id="cloudHint">This Kadmu Cloud instance doesn't have an active
+        subscription right now.</p>
+      <a class="btn primary" id="cloudManage" href="#" target="_blank" rel="noopener">Manage billing</a>
+      <button type="button" class="btn" id="cloudRetry">Check again</button>
+      <div class="login-error" id="cloudError"></div>
+    </div>
+  </div>
+
   <!-- ===== Profile chooser (only when --profiles is on) ===== -->
   <div id="profileOverlay" class="profile-overlay hidden">
     <div class="profile-card">
@@ -469,6 +489,7 @@
   <script src="/js/manage.js"></script>
   <script src="/js/settings.js"></script>
   <script src="/js/accounts.js"></script>
+  <script src="/js/cloud.js"></script>
   <script src="/js/player.js"></script>
   <script src="/js/audio.js"></script>
   <script src="/js/filters.js"></script>
