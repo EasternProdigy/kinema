@@ -99,11 +99,16 @@ class KadmuServer(ThreadingHTTPServer):
             pass
 
 
-def _probe_kadmu(port):
+def _probe_kadmu(port, scheme="http"):
     """True if a Kadmu instance is already answering on this port (so a second
     launch can just open a tab instead of crashing on a port clash)."""
+    ctx = None
+    if scheme == "https":
+        import ssl
+        ctx = ssl._create_unverified_context()   # self-signed LAN certs are expected
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/session", timeout=1.5) as r:
+        with urllib.request.urlopen(f"{scheme}://127.0.0.1:{port}/api/session",
+                                    timeout=1.5, context=ctx) as r:
             return json.loads(r.read() or b"{}").get("app") == APP_NAME
     except Exception:
         return False
@@ -136,7 +141,7 @@ def _launch_browser(port):
       app    - a dedicated Kadmu window (its own Firefox profile, not a tab)
       kiosk  - fullscreen with no browser chrome (TV / cinema mode)
     app/kiosk fall back to a normal tab if Firefox can't be located."""
-    url = f"http://127.0.0.1:{port}"
+    url = f"{rt.SCHEME}://127.0.0.1:{port}"
     if rt.LAUNCH_MODE in ("app", "kiosk"):
         ff = _firefox_path()
         if ff:
@@ -195,6 +200,16 @@ def main():
     parser.add_argument("--reset-password", metavar="USERNAME", default=None,
                         help="reset (or create, as admin) an account's password, then exit. "
                              "Uses KADMU_NEW_PASSWORD if set, else prints a random one.")
+    parser.add_argument("--tls", nargs=2, metavar=("CERT", "KEY"), default=None,
+                        help="serve HTTPS with this PEM certificate and private key "
+                             "(else KADMU_TLS_CERT / KADMU_TLS_KEY)")
+    parser.add_argument("--log-requests", action="store_true",
+                        default=os.environ.get("KADMU_LOG_REQUESTS") in ("1", "true", "yes"),
+                        help="emit one structured JSON log line per request")
+    parser.add_argument("--no-rate-limit", action="store_true",
+                        default=os.environ.get("KADMU_RATE_LIMIT") in ("0", "false", "no"),
+                        help="disable per-IP request rate limiting (LAN peers only; "
+                             "loopback is always exempt)")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     args = parser.parse_args()
 
@@ -241,12 +256,39 @@ def main():
 
     start_cache_janitor()   # regularly clears prepared files you're no longer watching
 
+    # ops / hardening flags (Phase 3)
+    rt.RATE_LIMIT = not args.no_rate_limit
+    rt.LOG_REQUESTS = bool(args.log_requests)
+    rt.ACCESS_LOG_PATH = os.environ.get("KADMU_ACCESS_LOG") or None
+
+    # Optional built-in TLS: cert+key from --tls or KADMU_TLS_CERT/KADMU_TLS_KEY.
+    # We set the scheme now (so every URL we build/probe is correct) and build the
+    # SSL context here, failing fast on a bad cert; the socket is wrapped once the
+    # server is created below. A reverse proxy (see deploy/Caddyfile) stays the
+    # recommended path for public HTTPS; this is for direct LAN serving.
+    tls_cert = (args.tls[0] if args.tls else os.environ.get("KADMU_TLS_CERT")) or None
+    tls_key = (args.tls[1] if args.tls else os.environ.get("KADMU_TLS_KEY")) or None
+    rt.TLS = bool(tls_cert and tls_key)
+    rt.SCHEME = "https" if rt.TLS else "http"
+    ssl_ctx = None
+    if rt.TLS:
+        import ssl
+        if not (Path(tls_cert).is_file() and Path(tls_key).is_file()):
+            print(f"  TLS cert/key not found — check '{tls_cert}' and '{tls_key}'.")
+            sys.exit(1)
+        try:
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(certfile=tls_cert, keyfile=tls_key)
+        except (ssl.SSLError, OSError) as e:
+            print(f"  Couldn't load the TLS certificate/key: {e}")
+            sys.exit(1)
+
     # Already running? Act like a normal desktop app: just open a new tab and
     # exit, instead of crashing trying to re-bind the port. This makes every
     # entry point (the .exe, the `kadmu` command, double-clicking a launcher
     # twice) idempotent.
-    if _probe_kadmu(args.port):
-        print(f"  {APP_NAME} is already running at http://127.0.0.1:{args.port}")
+    if _probe_kadmu(args.port, rt.SCHEME):
+        print(f"  {APP_NAME} is already running at {rt.SCHEME}://127.0.0.1:{args.port}")
         if not args.no_open:
             print("  Opening it in your browser...")
             _launch_browser(args.port)
@@ -322,9 +364,9 @@ def main():
     print(f"  {APP_NAME} {APP_VERSION}  -  a personal cinema in a browser tab")
     print("  by Pentarosa Co.  -  MIT licensed")
     print("=" * 64)
-    print(f"  Local:   http://127.0.0.1:{args.port}")
+    print(f"  Local:   {rt.SCHEME}://127.0.0.1:{args.port}")
     for ip in lan_ips:
-        print(f"  Network: http://{ip}:{args.port}   (open this on your phone/TV)")
+        print(f"  Network: {rt.SCHEME}://{ip}:{args.port}   (open this on your phone/TV)")
     roots = real_roots()
     if roots:
         print("  Library:")
@@ -343,6 +385,10 @@ def main():
         print(f"  Login:   {'password required' if password_required() else 'none (anyone on an allowed host)'}")
     print(f"  Mode:    {'DEMO (read-only)' if args.demo else ('READ-ONLY' if rt.READONLY else 'full control')}")
     print(f"  ffmpeg:  {FFMPEG or 'NOT found (thumbnails disabled)'}")
+    if rt.TLS:
+        print("  TLS:     on (built-in HTTPS)")
+    if rt.LOG_REQUESTS:
+        print(f"  Logging: structured request log -> {rt.ACCESS_LOG_PATH or 'stdout'}")
     if rt.LAN_MODE and not rt.ACCOUNTS_ENABLED and not password_required():
         print("  NOTE: sharing is on with no password — anyone on your network can watch & manage. Set one in Settings.")
     print("  Press Ctrl+C to stop.")
@@ -356,6 +402,9 @@ def main():
         print("  Another program may be using it — try a different --port.")
         sys.exit(1)
     httpd.daemon_threads = True
+    if ssl_ctx is not None:
+        # Wrap the listening socket so every accepted connection speaks TLS.
+        httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
 
     # Build the search catalog in the background now that the roots are finalized,
     # so the first search is instant and complete.

@@ -87,6 +87,43 @@ except ValueError:
 # Safety cap so a pathologically huge tree can't exhaust memory building the index.
 INDEX_MAX_VIDEOS = 200000
 
+# --------------------------------------------------------------------------- #
+# Phase 3 — public-hardening & ops
+# --------------------------------------------------------------------------- #
+# Per-IP request rate limiting (a token bucket; see ops.rate_ok). Loopback is
+# always exempt, so the box owner and a reverse proxy on the same host are never
+# limited — only non-loopback (LAN/public) peers are. The defaults are generous
+# enough that a normal browser (lazy thumbnail grids, seeking) never trips them,
+# but low enough to defang a flood meant to peg the CPU (e.g. hammering search to
+# force re-indexing). RATE_RPS = sustained requests/sec, RATE_BURST = bucket size.
+try:
+    RATE_RPS = max(1.0, float(os.environ.get("KADMU_RATE_RPS", "50")))
+except ValueError:
+    RATE_RPS = 50.0
+try:
+    RATE_BURST = max(1, int(os.environ.get("KADMU_RATE_BURST", "200")))
+except ValueError:
+    RATE_BURST = 200
+RATE_LIMIT_MAX_IPS = 8192          # bound the per-IP bucket table (cleared if exceeded)
+
+# Per-user (accounts mode) / per-IP cap on simultaneous live transcode/remux
+# streams — the expensive ffmpeg pipes. Native files stream straight off disk and
+# are NOT counted (they're cheap and arrive as many small range requests). This is
+# the per-identity counterpart to the global MAX_STREAMS cap. 0 disables it.
+# Override with KADMU_USER_MAX_STREAMS. Default: 3.
+try:
+    USER_MAX_STREAMS = max(0, int(os.environ.get("KADMU_USER_MAX_STREAMS", "3")))
+except ValueError:
+    USER_MAX_STREAMS = 3
+
+# Socket timeout (seconds) for an idle keep-alive/slow request — a slow-loris
+# backstop. A live transfer resets it on every chunk; only a stalled socket trips
+# it. Override with KADMU_REQUEST_TIMEOUT. Default: 120.
+try:
+    REQUEST_TIMEOUT = max(5, int(os.environ.get("KADMU_REQUEST_TIMEOUT", "120")))
+except ValueError:
+    REQUEST_TIMEOUT = 120
+
 CONFIG_PATH = DATA_DIR / "config.json"
 PROGRESS_PATH = DATA_DIR / "progress.json"
 PLAYLISTS_PATH = DATA_DIR / "playlists.json"

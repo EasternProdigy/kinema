@@ -1,5 +1,5 @@
-# Public demo deployment. Put it behind a reverse proxy that terminates HTTPS.
-# Run from the project root:
+# Public demo deployment. Put it behind a reverse proxy that terminates HTTPS
+# (see deploy/Caddyfile and deploy/README.md). Run from the project root:
 #   docker compose -f deploy/docker-compose.yml up --build
 services:
   kadmu-demo:
@@ -13,6 +13,12 @@ services:
       - KADMU_READONLY=1
       # Lock to your demo domain instead of allow-any-host (edit Dockerfile CMD too):
       # - KADMU_ALLOWED_HOSTS=kadmu-demo.example.com
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
 
   # Example: run YOUR OWN library over the LAN (not the demo).

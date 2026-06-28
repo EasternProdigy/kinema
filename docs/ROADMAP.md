@@ -3,9 +3,11 @@
 > Status: **in progress.** **Phase 1 (the VLC-grade player + a genuinely good frontend +
 > a local-data discovery home + LAN watch party) is shipped** — only metadata enrichment
 > (the opt-in TMDB/.nfo call) is deliberately deferred (see §6.3). **Phase 2 (accounts &
-> multi-user, opt-in `--accounts`) is shipped** too. See the §1/§2 markers and the changelog.
-> This document remains the agreed direction; we keep implementing phase by phase, settling
-> the remaining open decisions in §6 as we go.
+> multi-user, opt-in `--accounts`) is shipped**, and **Phase 3 (public-hardening & ops —
+> built-in TLS, per-IP rate limiting, `/healthz` + `/metrics` + structured logging, per-user
+> stream quotas) is shipped** too. See the §1/§2/§3 markers and the changelog. This document
+> remains the agreed direction; we keep implementing phase by phase, settling the remaining
+> open decisions in §6 as we go.
 
 Goal: the **best browser-based player for your own video files** — VLC-grade per-file power,
 Netflix-grade ease of use — shipped as **two editions from one codebase**:
@@ -196,13 +198,21 @@ delight — all vanilla/stdlib, no outbound calls.
 > **Still open for a later pass:** a JSON *export* path (we import but don't export yet), and
 > moving the rest of frontend prefs server-side (cc/keyHud already sync; volume/last-folder don't).
 
-### Phase 3 — Public-hardening & ops *(edition: Both; required for Cloud)*
-- **TLS story:** optional built-in `ssl` + a documented Caddy reverse-proxy deploy (auto-HTTPS).
-- **Abuse protection:** per-IP request rate limiting & timeouts (today only `/api/login` is
-  throttled; everything else is open — re-indexing is cheap to weaponize).
-- **Observability:** structured request logging (`log_message` is a no-op at
-  `src/server.py:2036`), `/healthz`, basic metrics, error capture.
-- **Quotas/accounting:** per-user concurrent streams + bandwidth meter (prereq for paid tiers).
+### Phase 3 — Public-hardening & ops *(edition: Both; required for Cloud)* — ✅ SHIPPED
+- ✅ **TLS story:** optional built-in `ssl` (`--tls CERT KEY` / `KADMU_TLS_CERT`+`KADMU_TLS_KEY`,
+  flips every URL to `https://`) **plus** a documented Caddy reverse-proxy deploy with auto-HTTPS
+  ([deploy/Caddyfile](../deploy/Caddyfile), [deploy/README.md](../deploy/README.md)).
+- ✅ **Abuse protection:** per-IP **token-bucket rate limiting** on *every* route (not just login),
+  loopback-exempt, tunable (`KADMU_RATE_RPS`/`KADMU_RATE_BURST`, `--no-rate-limit`); per-request
+  idle-socket timeout (`KADMU_REQUEST_TIMEOUT`) as a slow-loris backstop.
+- ✅ **Observability:** structured per-request JSON logging (`--log-requests` / `KADMU_ACCESS_LOG`;
+  the old no-op `log_message` is replaced by a real request lifecycle), `GET /healthz`, a Prometheus
+  `GET /metrics`, and 500/error capture (`_on_route_error`).
+- ✅ **Quotas/accounting:** per-user (or per-IP) concurrent live-stream cap (`KADMU_USER_MAX_STREAMS`)
+  + a bandwidth meter (bytes served per identity, surfaced in `/metrics`) — the prereq for paid tiers.
+> Built stdlib-only, all in the new `src/kadmu/ops.py` module. **Still open for a later pass:**
+> *enforced* bandwidth quotas (we meter but don't yet cap) and persisting the meter across restarts
+> both wait for the Cloud billing layer (Phase 4a); HSTS is intentionally left to the reverse proxy.
 
 ### Phase 4a — Cloud v1: accounts, billing, licensing (LAN) *(edition: Hosted)*
 The node still runs on the user's machine and serves local files (LAN). The cloud adds the

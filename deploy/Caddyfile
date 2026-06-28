@@ -1,0 +1,39 @@
+# Kadmu behind Caddy with automatic HTTPS (Let's Encrypt).
+#
+# Caddy terminates TLS on :443 and reverse-proxies to Kadmu on loopback. This is
+# the recommended way to expose Kadmu beyond your LAN — Caddy handles certs,
+# renewal, and HSTS, and is where you should also do public-facing rate limiting.
+#
+# Run Kadmu bound to loopback with the proxy domain allow-listed (it sees the
+# proxy connecting from 127.0.0.1, so it stays loopback-only; the public Host
+# header must be in KADMU_ALLOWED_HOSTS), and protect it with a password or
+# --accounts (and --read-only for a public demo):
+#
+#   KADMU_ALLOWED_HOSTS=kadmu.example.com \
+#   KADMU_PASSWORD=change-me \
+#     python3 src/server.py /path/to/Videos --host 127.0.0.1 --port 8000 --no-open
+#
+# Then:  caddy run --config deploy/Caddyfile
+#
+# NOTE: because every request reaches Kadmu from 127.0.0.1, Kadmu's own per-IP
+# rate limiter sees one (exempt) loopback peer and does not apply — do public
+# rate limiting here at the proxy (see the commented rate_limit block below).
+
+kadmu.example.com {
+	encode zstd gzip
+
+	reverse_proxy 127.0.0.1:8000 {
+		# Flush immediately so the live transcode/remux stream (which has no
+		# Content-Length) starts playing without proxy buffering delay.
+		flush_interval -1
+	}
+
+	# Optional: rate limiting at the edge (needs the caddy-ratelimit plugin).
+	# rate_limit {
+	#     zone kadmu {
+	#         key    {remote_host}
+	#         events 120
+	#         window 1s
+	#     }
+	# }
+}
