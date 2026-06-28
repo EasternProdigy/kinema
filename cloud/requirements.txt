@@ -1,0 +1,9 @@
+# Kadmu Cloud layer dependencies — Phase 4b.
+#
+# These are for the `cloud/` layer ONLY. The self-host core (src/kadmu/) remains strictly
+# standard-library, no-pip — that promise is unchanged. Only the WebRTC connector, which CANNOT
+# be stdlib (ICE/DTLS/SCTP), takes a dependency:
+aiortc>=1.6        # WebRTC for the home-node connector (pulls in aioice, pylibsrtp, av, cffi)
+
+# The signaling broker (cloud/signaling/server.py) is deliberately stdlib-only and needs nothing
+# here — it runs with a bare `python3`. Likewise the wire codec (cloud/wire.py) and its tests.
