@@ -216,6 +216,34 @@ peers + a browser + a TURN server:
 
 ---
 
+## Scale & cost control — Phase 5 (built)
+
+Phase 5 keeps the §5 cost model (`video never touches our servers`) holding as tenants are
+added, and **caps the one place egress can leak** — the TURN relay. Full design + the cap math
+live in [docs/PHASE_5_DESIGN.md](../docs/PHASE_5_DESIGN.md); this is what shipped.
+
+| Piece | Where | What it does |
+|---|---|---|
+| **Metering + caps** (stdlib, 21 tests) | [`metering/`](metering/) | meters relay bytes per tenant × month, enforces a per-plan cap, and mints coturn ephemeral TURN credentials. **No credential ⇒ no relay**, so the cap is enforced *before* bytes flow. `python3 -m unittest discover -s cloud/metering/tests` |
+| **Relay-credential gate** | `control-plane` | `GET /api/relay-credentials` (entitlement- + cap-gated) → short-TTL ICE servers, or STUN-only when over cap / inactive / unconfigured. Plus a Prometheus `GET /metrics`. |
+| **The capped relay** | [`relay/`](relay/) | coturn (`use-auth-secret`, ≤720p/≈3 Mbps ceilings, private-range SSRF denial, Prometheus) + the metering collector. P2P stays default; relay is the rare fallback. |
+| **Sticky signaling scale** | [`signaling/`](signaling/) | `X-Kadmu-Node` routing key (both peers send it → a sticky LB pins them to one broker, zero shared state), env-tunable TTLs, `/metrics`. |
+| **CDN cache-busting** | core (`--cdn`) | immutable long-cache + `?v=APP_VERSION` on the app shell behind Cloudflare Free. **Off by default — self-host is byte-identical.** |
+| **Deploy stack** | [`infra/`](infra/) | Caddy sticky LB, `docker-compose.scale.yml`, Cloudflare-Free CDN notes, Prometheus + Grafana (dashboards + the fleet relay-egress budget alert). |
+
+**The credential scheme** (control-plane mints, coturn validates locally, no per-call lookup):
+`username = "<expiry>:<tenant>"`, `password = base64(HMAC-SHA1(turn_secret, username))`.
+
+**What you still set up yourself** (it's deploy, not code): a small VPS for
+control-plane+signaling+ops and a separate one for coturn; DNS (`cloud.` `signal.` `turn.`
+`app.kadmu.app`); a Cloudflare Free account for the CDN; real Stripe keys; one shared
+`TURN_SECRET` (give it to both the relay and the control-plane); Litestream→R2 for DB backups.
+Then `docker compose -f cloud/infra/docker-compose.scale.yml up -d` and the relay's compose on
+its box. Fixed cost ≈ **$10–11/mo**; relay egress is hard-capped per plan. See each subdir's
+`README.md` and `.env.example`.
+
+---
+
 ## Why this respects the project's soul
 
 - Core stays **stdlib-only / no-pip** — the dependency and all WebRTC weight is quarantined in

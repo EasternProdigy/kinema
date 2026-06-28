@@ -73,11 +73,26 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   path for remote video are the integration follow-ups (see [cloud/README.md](../cloud/README.md)).
   The open-source core stays **stdlib-only** — the lone WebRTC dependency (`aiortc`) is
   quarantined to the connector in `cloud/`, and the core needs zero changes to be reachable.
-- **Scale & cost-control design (Phase 5).** [docs/PHASE_5_DESIGN.md](PHASE_5_DESIGN.md) lays out
-  the full hosted-scale plan — capped coturn relay + per-plan byte caps, sticky signaling LB,
-  SQLite→Litestream→R2 with a documented Postgres cutover, a Cloudflare-Free CDN with build-free
-  cache-busting, and Prometheus/Grafana over the Phase 3 `/metrics`. It's a design deliverable;
-  the production pieces are live infrastructure deferred until Cloud launch.
+- **Scale & cost control (Phase 5, built).** The whole [PHASE_5_DESIGN](PHASE_5_DESIGN.md) is now
+  implemented as code + config-as-code under `cloud/` (the open-source core is untouched bar one
+  opt-in flag). The heart is the **cost guardrail**: a stdlib **`cloud/metering/`** package
+  (21 unit tests) that meters relay bytes per tenant per month, enforces a per-plan cap, and
+  mints coturn's standard ephemeral TURN credentials — so an over-budget or unsubscribed tenant
+  simply never gets a credential and can't open a relay allocation (the cap is enforced *before*
+  bytes flow). The control-plane gains **`GET /api/relay-credentials`** (entitlement- + cap-gated;
+  returns short-TTL ICE servers or refuses to STUN-only) and a Prometheus **`/metrics`** endpoint.
+  A capped **`cloud/relay/`** coturn config ships the relay 4b lacked — ≤720p / ~3 Mbps ceilings,
+  private-range SSRF denial, and a metrics collector that attributes bytes to tenants. The
+  signaling broker gains a sticky **`X-Kadmu-Node`** routing key, env-tunable TTLs and a
+  `/metrics` endpoint (scale out behind a sticky LB with zero shared state); the connector and
+  `remote.js` fetch entitlement-bound ICE servers and clamp quality on relay. The static app
+  shell can be served behind a **CDN** (`--cdn`/`KADMU_CDN`): immutable long-cache headers +
+  build-free `?v=APP_VERSION` cache-busting — **off by default, so self-host is byte-identical**.
+  Finally **`cloud/infra/`** ships the deploy stack: a Caddy sticky LB, `docker-compose.scale.yml`,
+  Cloudflare-Free CDN notes, and a Prometheus + Grafana observability stack (dashboards + the
+  fleet relay-egress budget alert). All standard-library Python + config; the only operated (not
+  authored) binaries are coturn and, optionally, Prometheus/Grafana. Standing up the live
+  infrastructure (VPS, DNS, Cloudflare, real Stripe/TURN secrets) is the remaining deploy step.
 - **Multi-user accounts (opt-in, `--accounts`).** Real sign-in for households and shared
   boxes, backed by an embedded **SQLite** database (`sqlite3`, still standard-library only —
   no `pip`). Each person gets their **own** resume points, My List, playlists and display

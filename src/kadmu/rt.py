@@ -19,6 +19,12 @@ BIND_HOST = "0.0.0.0"     # socket bind address
 LAN_TOGGLEABLE = False    # True when the bind address can reach the LAN (wildcard bind)
 SERVER_URLS = []          # URLs shown in Settings, reflecting the sharing state
 
+# Phase 5 — CDN edge-caching of the static app shell (hosted edition). When on, /js, /fonts and
+# /style.css are sent with immutable long-cache headers and the shell's asset refs are versioned
+# with ?v=APP_VERSION so a CDN (Cloudflare) can cache them forever and a release busts them.
+# OFF by default so the self-host experience (edit a file, refresh) is unchanged.
+CDN = False
+
 # Phase 3 — public-hardening & ops
 SCHEME = "http"           # "https" once built-in TLS is on (--tls); drives every URL we build
 TLS = False               # built-in HTTPS enabled (cert+key supplied via --tls / env)

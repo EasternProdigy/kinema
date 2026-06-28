@@ -1,0 +1,98 @@
+# ============================================================================
+# Kadmu Cloud — relay stack (Phase 5).
+# ----------------------------------------------------------------------------
+# Two services:
+#   coturn          — the capped TURN relay (the P2P fallback). See turnserver.conf.
+#   meter-collector — scrapes coturn's metrics and records per-tenant relay bytes
+#                     into the shared control-plane DB (cloud/metering/collector.py).
+#
+#   cp .env.example .env   # fill in TURN_SECRET, TURN_EXTERNAL_IP, ...
+#   docker compose up -d
+#
+# Runs cheap: both services idle near-zero CPU until a hostile-NAT session needs
+# the relay. See docs/PHASE_5_DESIGN.md §2 and cloud/relay/README.md.
+# ============================================================================
+
+services:
+  # --- The TURN relay -------------------------------------------------------
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # The config is mounted read-only and holds NO secrets — the secret/realm/
+      # external-ip are passed as coturn CLI flags below (expanded by the shell
+      # from .env), because coturn does not expand $(VAR)/${VAR} inside a config.
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+
+    # Inject the dynamic values as CLI flags (they override/extend the config).
+    # `sh -c` lets us conditionally add --external-ip only when TURN_EXTERNAL_IP is
+    # set (an empty --external-ip would make coturn refuse to start). env_file makes
+    # $TURN_SECRET / $TURN_REALM / $TURN_EXTERNAL_IP visible to the shell here.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        exec turnserver -c /etc/coturn/turnserver.conf
+        --static-auth-secret="$$TURN_SECRET"
+        --realm="$$TURN_REALM" --server-name="$$TURN_REALM"
+        $${TURN_EXTERNAL_IP:+--external-ip="$$TURN_EXTERNAL_IP"}
+
+    # Host networking is by far the simplest correct setup for TURN: coturn needs
+    # to see real client source addresses and allocate from a wide UDP relay-port
+    # range, both of which fight with Docker's userland NAT. With host networking
+    # the `ports:` below are NOT used (the container shares the host's stack) —
+    # open the firewall on the host instead (see README "ports to open").
+    network_mode: host
+
+    # ALTERNATIVE to host networking (explicit port mapping). If you must use a
+    # bridge network, remove `network_mode: host` above and uncomment this. Note
+    # the relay UDP range must be published too, which is heavy for Docker NAT —
+    # host networking is recommended. 9641 (metrics) stays internal-only here.
+    # ports:
+    #   - "3478:3478/udp"
+    #   - "3478:3478/tcp"
+    #   - "5349:5349/tcp"
+    #   - "${RELAY_MIN_PORT:-49160}-${RELAY_MAX_PORT:-49200}:${RELAY_MIN_PORT:-49160}-${RELAY_MAX_PORT:-49200}/udp"
+    # networks: [relay-internal]
+
+  # --- The metering collector (we RUN it here; it's authored in cloud/metering/) -
+  # Scrapes coturn's Prometheus exporter, diffs the byte counters, attributes
+  # them to the tenant encoded in each TURN username, and records usage into the
+  # shared control-plane SQLite DB. Implemented at cloud/metering/collector.py —
+  # this service only launches it; it is NOT implemented here.
+  meter-collector:
+    image: python:3.12-slim
+    restart: unless-stopped
+    depends_on:
+      - coturn
+    env_file:
+      - .env
+    environment:
+      # With coturn on host networking, its exporter is reachable on loopback.
+      COTURN_METRICS_URL: ${COTURN_METRICS_URL:-http://127.0.0.1:9641/metrics}
+      # The shared control-plane store (see note on the volume below).
+      KADMU_METER_DB: ${KADMU_METER_DB:-/data/cloud.db}
+    volumes:
+      # The repo, read-only, so we can run the collector source directly. The DB
+      # cannot live here (read-only mount) — it lives on the writable volume below.
+      - ../..:/app:ro
+      # Writable volume for the SQLite DB. IMPORTANT: this SHOULD be the SAME
+      # cloud.db the control-plane uses (Phase 5 shared-store, design §2.2/§10.2)
+      # — bind-mount the control-plane's data dir here in production instead of
+      # this named volume, so cap decisions and metering read/write one store.
+      - meter-data:/data
+    working_dir: /app
+    # Use loopback to reach coturn's host-networked exporter.
+    network_mode: host
+    command: python3 /app/cloud/metering/collector.py
+
+volumes:
+  # Replace with a bind mount to the control-plane's data directory in production
+  # so the collector and control-plane share one cloud.db (one Litestream backup).
+  meter-data:
+
+# Used only if you switch coturn off host networking (see the commented block).
+# networks:
+#   relay-internal:
+#     internal: true

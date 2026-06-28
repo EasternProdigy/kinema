@@ -1,0 +1,130 @@
+# Kadmu Cloud — production reverse proxy + sticky load balancer (Caddy, auto-HTTPS).
+#
+# This is the PRODUCTION Caddyfile for Phase 5 (scale & cost control). It supersedes
+# the single-vhost `Caddyfile.example` (which stays as the minimal Phase-4a starting
+# point); this file fronts the whole hosted fleet:
+#
+#     cloud.kadmu.app   → control-plane  (accounts, billing, entitlements, /metrics)
+#     signal.kadmu.app  → signaling brokers, STICKY by node id (sig1 + sig2 …)
+#     app.kadmu.app     → the static app shell ORIGIN behind the Cloudflare Free CDN
+#
+# Run it (the docker-compose.scale.yml `caddy` service mounts this read-only):
+#     caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+# Or standalone:
+#     caddy run --config cloud/infra/Caddyfile --adapter caddyfile
+#
+# Auto-HTTPS: Caddy provisions + renews Let's Encrypt certs for every site address
+# below. Point the three DNS A/AAAA records at this box first; certs issue on boot.
+# Set an ops email for ACME notices (recommended) via the global options block.
+
+{
+	# ACME contact for cert-expiry notices. Override with your ops address.
+	email ops@kadmu.app
+	# admin off          # uncomment to disable the local admin API (:2019) in prod
+}
+
+# ───────────────────────── control-plane ─────────────────────────
+# Phase 4a: signup, Stripe billing + webhooks, entitlement/license API, dashboard,
+# and the Phase-5 relay-credentials endpoint + relay-metering /metrics.
+cloud.kadmu.app {
+	encode zstd gzip
+
+	# Stripe verifies webhook signatures over the RAW request body — Caddy proxies it
+	# verbatim, so /api/webhook/stripe needs no special handling here.
+	reverse_proxy control-plane:8787 {
+		# Keep the control-plane healthy in the LB's eyes (single instance today;
+		# this is already correct when the Postgres + N-instance cutover happens — §4).
+		health_uri /healthz
+		health_interval 15s
+		health_timeout 5s
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# ───────────────────────── signaling broker (STICKY) ─────────────────────────
+# Phase 4b broker, scaled OUT (§3). The broker keeps one in-memory mailbox per peer
+# with NO shared state, so a guest and its host MUST land on the same instance. Both
+# WebRTC peers send `X-Kadmu-Node: <node id>` on every signaling call, so hashing
+# that header pins guest+host to one broker — zero shared state, no Redis bill.
+#
+# To scale: add more upstreams here (e.g. `sig3:8443`) and start the service in
+# docker-compose.scale.yml. lb_policy `header` is a consistent hash, so adding a
+# broker only reshuffles a fraction of node→instance mappings.
+signal.kadmu.app {
+	encode zstd gzip
+
+	reverse_proxy sig1:8443 sig2:8443 {
+		# Pin both peers of a session to one instance by hashing the node id they
+		# both send. This is the zero-shared-state sticky key (§3, contract §6.2).
+		lb_policy header X-Kadmu-Node
+
+		# Alternative: cookie affinity for the guest (the connector/host would have to
+		# send the same routing cookie). Header-hash is preferred — it needs no cookie
+		# round-trip and pins the host too. Uncomment to switch:
+		# lb_policy cookie kadmu_sig
+
+		# Drop an unhealthy broker out of rotation; the surviving instance serves new
+		# sessions (handshakes are brief and idempotent — a dropped session just retries).
+		health_uri /healthz
+		health_interval 15s
+		health_timeout 5s
+
+		# Long-poll: a /signal/poll blocks up to ~25s. Give the proxy generous read
+		# headroom so the broker — not Caddy — decides when an empty poll returns.
+		transport http {
+			read_timeout 60s
+			write_timeout 60s
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}
+
+# ───────────────────────── static app shell (CDN ORIGIN) ─────────────────────────
+# This vhost is the ORIGIN that sits BEHIND Cloudflare Free (see cloud/infra/cdn/).
+# Cloudflare caches everything except `/`, `/index.html`, `/api/*`; the headers below
+# make that caching correct and let the edge hold the heavy assets ~forever.
+#
+# The app shell references versioned assets as `…/js/main.js?v=<APP_VERSION>` when the
+# origin node runs with KADMU_CDN=1 (a core flag added by the parent), so a new release
+# bumps APP_VERSION → new `?v=` → the short-cached index.html busts every asset at the
+# edge with no build step. See cloud/infra/cdn/README.md.
+app.kadmu.app {
+	encode zstd gzip
+
+	# Long-cache the immutable, versioned static assets (busted by `?v=` on release).
+	@assets path /js/* /fonts/* /style.css
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# The app shell itself must always re-validate so a release is picked up promptly
+	# (it carries the new `?v=` that invalidates the assets above at the edge).
+	@shell path / /index.html
+	header @shell Cache-Control "no-cache"
+
+	# API must never be cached — neither here nor at Cloudflare (the CDN rule excludes
+	# it too). Belt-and-braces in case a cache rule is misconfigured.
+	@api path /api/*
+	header @api Cache-Control "no-store"
+
+	# The app shell + API are served by the core node running in CDN/origin mode.
+	# (Point KADMU_CDN=1 at this node so it emits the versioned references + headers.)
+	reverse_proxy app-origin:8000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

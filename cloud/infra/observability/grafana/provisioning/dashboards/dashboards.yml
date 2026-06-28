@@ -1,0 +1,19 @@
+# Kadmu Cloud — Grafana dashboard provider (Phase 5 observability).
+# Auto-loaded on boot; tells Grafana to import every dashboard JSON found under the
+# mounted path. The Compose stack mounts cloud/infra/observability/grafana/dashboards
+# at /var/lib/grafana/dashboards.
+
+apiVersion: 1
+
+providers:
+  - name: kadmu-cloud
+    orgId: 1
+    folder: Kadmu Cloud
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

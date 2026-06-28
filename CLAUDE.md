@@ -29,7 +29,8 @@ kadmu/
 │  └─ web/          the frontend: index.html · style.css · qr.js · js/*.js · fonts/
 ├─ scripts/        run.sh · dev.sh · demo.sh · make-sample-library.sh
 ├─ launchers/      double-click launchers (Linux/macOS/Windows) + install-linux.sh
-├─ cloud/          the HOSTED layer — NOT shipped to self-hosters (Phase 4; see cloud/README.md)
+├─ cloud/          the HOSTED layer — NOT shipped to self-hosters (Phase 4–5: control-plane,
+│                  signaling, connector, metering, relay, infra; see cloud/README.md)
 ├─ deploy/         Dockerfile · docker-compose.yml · .env.example
 ├─ docs/           CONTRIBUTING · SECURITY · CHANGELOG · NOTICE · ROADMAP · BRAND.md + brand/
 ├─ install.sh / install.ps1   one-line installers (curl|bash / irm|iex)
@@ -295,7 +296,7 @@ janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
 Flags: `[FOLDER ...]`, `--host`, `--port`, `--lan`, `--password`, `--read-only`, `--demo`,
 `--no-browse`, `--allowed-host` (repeatable), `--allow-any-host`, `--app`, `--kiosk`,
 `--no-open`, `--profiles`, `--accounts`, `--reset-password USERNAME`, `--tls CERT KEY`,
-`--log-requests`, `--no-rate-limit`, `--cloud URL`, `--tenant ID`, `--version`.
+`--log-requests`, `--no-rate-limit`, `--cloud URL`, `--tenant ID`, `--cdn`, `--version`.
 `--accounts` turns on multi-user accounts (SQLite); `--reset-password USERNAME` resets/creates
 that account as admin (using `KADMU_NEW_PASSWORD`, else a printed random one) and exits.
 `--tls CERT KEY` serves built-in HTTPS; `--log-requests` emits structured per-request JSON logs;
@@ -303,6 +304,10 @@ that account as admin (using `KADMU_NEW_PASSWORD`, else a printed random one) an
 `--cloud URL` + `--tenant ID` (+ the secret in `KADMU_CLOUD_SECRET`) run the node **cloud-attached**
 as a Kadmu Cloud tenant — subscription-gated via `kadmu.cloud` (Phase 4a); all three absent ⇒
 plain self-host, fully unlocked.
+`--cdn` (or `KADMU_CDN=1`) makes the static app-shell routes (`/js`, `/fonts`, `/style.css`) emit
+immutable long-cache headers + `?v=APP_VERSION` cache-busting for serving behind a CDN (Phase 5);
+**off by default**, so the self-host experience (edit a file, refresh) is unchanged. The hosted
+`cloud/` layer has its own env (Stripe, TURN secret/URLs, relay caps) documented under `cloud/`.
 Env equivalents read at startup: `KADMU_PASSWORD`, `KADMU_PORT`, `KADMU_READONLY`,
 `KADMU_PROFILES`, `KADMU_ACCOUNTS`, `KADMU_NEW_PASSWORD` (for `--reset-password`),
 `KADMU_CLOUD_URL` / `KADMU_CLOUD_TENANT` / `KADMU_CLOUD_SECRET` (cloud-attach; the secret is

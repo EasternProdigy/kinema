@@ -1,0 +1,191 @@
+# Kadmu Cloud — Prometheus alerting rules (Phase 5, §8).
+#
+# The guardrails the whole cost model leans on. The headline is RelayEgressOverBudget
+# (the money alert): a FLEET backstop above the per-tenant relay caps, so a pricing
+# mistake or abuse is caught at the aggregate level — not just per tenant.
+#
+# Thresholds are baked in (PromQL has no env interpolation); keep them in sync with
+# cloud/infra/.env (RELAY_FLEET_BUDGET_BYTES) when you tune the budget.
+
+groups:
+  # ───────────────────────── relay cost control (the heart) ─────────────────────────
+  - name: kadmu-relay-cost
+    rules:
+      # The money alert. kadmu_relay_bytes_total{plan} is a monotonic counter; we want
+      # bytes accrued in the CURRENT calendar month. increase(...[time-since-month-start])
+      # isn't expressible directly, so approximate with a 30-day window — close enough for
+      # a fleet ceiling and conservative (slightly over-counts at month boundaries).
+      # Fleet budget here = 2 TiB / month (2199023255552 bytes); match .env's
+      # RELAY_FLEET_BUDGET_BYTES. Tune both together against real egress pricing.
+      - alert: RelayEgressOverBudget
+        expr: sum(increase(kadmu_relay_bytes_total[30d])) > 2199023255552
+        for: 10m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Fleet relay egress over the monthly budget"
+          description: >
+            Aggregate relay egress (sum of kadmu_relay_bytes_total over ~30d) has crossed
+            the 2 TiB/month fleet budget. This is the backstop ABOVE per-tenant caps — a
+            pricing/abuse signal. Check kadmu_relay_tenants_over_cap and per-plan
+            kadmu_relay_bytes_total{plan} to find where it's leaking before paying more.
+
+      # Early-warning at 80% of budget so ops can react before the hard money alert.
+      - alert: RelayEgressApproachingBudget
+        expr: sum(increase(kadmu_relay_bytes_total[30d])) > 0.8 * 2199023255552
+        for: 30m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Fleet relay egress at 80% of the monthly budget"
+          description: >
+            Relay egress is approaching the fleet budget line. Review per-plan usage and
+            whether STUN/NAT (relay-fallback ratio) is driving avoidable relay traffic.
+
+      # Relay should be the hostile-NAT MINORITY. If relayed sessions climb above ~20% of
+      # all signaling sessions, P2P/STUN is failing more than expected — investigate NAT
+      # traversal BEFORE paying for relay. Proxy "total sessions" with the host count
+      # (kadmu_signal_hosts ≈ active node sessions); guard the denominator against 0.
+      - alert: RelayFallbackRatioHigh
+        expr: >
+          kadmu_relay_sessions_active
+            / clamp_min(sum(kadmu_signal_hosts), 1) > 0.20
+        for: 15m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Relay fallback ratio above 20%"
+          description: >
+            Relayed sessions are >20% of active signaling sessions
+            (kadmu_relay_sessions_active / sum(kadmu_signal_hosts)). P2P is succeeding less
+            than expected — check STUN reachability and the connector's ICE config before
+            scaling/paying for relay.
+
+      # Visibility that tenants are hitting their per-tenant caps (expected at small
+      # numbers; a spike means a plan cap may be mis-set or a tenant needs an upsell).
+      - alert: TenantsOverRelayCap
+        expr: kadmu_relay_tenants_over_cap > 5
+        for: 1h
+        labels:
+          severity: info
+          team: ops
+        annotations:
+          summary: "Several tenants over their relay cap"
+          description: >
+            {{ $value }} tenants are over their monthly relay-byte cap
+            (kadmu_relay_tenants_over_cap). Confirm caps are right and consider a paid
+            relay-plus add-on if this is sustained.
+
+  # ───────────────────────── control-plane health ─────────────────────────
+  - name: kadmu-control-plane
+    rules:
+      # Control-plane error rate. kadmu_requests_total is exposed by the core node AND the
+      # control-plane shares the same Phase-3 metric shape; here we scope to the
+      # control-plane job and any status label that looks like a 5xx. (Falls back to the
+      # raw counter rate if the metric carries no status label.)
+      - alert: ControlPlaneErrors
+        expr: >
+          sum(rate(kadmu_requests_total{job="control-plane", status=~"5.."}[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Control-plane 5xx error rate elevated"
+          description: >
+            The control-plane is returning 5xx at >0.5/s over 5m. Check Stripe webhook
+            delivery, the SQLite DB, and license-mint paths. Sustained errors here block
+            signups, billing sync, and license refresh.
+
+      # Stripe webhook backlog / delivery failure — billing state silently drifting.
+      # webhook_events is the idempotency table; a stalled/failing pipeline shows as 5xx
+      # on the webhook route. If the control-plane later exposes a backlog gauge, swap
+      # this expr for it.
+      - alert: WebhookBacklog
+        expr: >
+          sum(rate(kadmu_requests_total{job="control-plane", route="/api/webhook/stripe", status=~"5.."}[10m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Stripe webhook deliveries failing"
+          description: >
+            The Stripe webhook endpoint is erroring over the last 15m. Subscription state
+            may be drifting. Inspect signature verification, the DB, and Stripe's webhook
+            retry queue.
+
+      # A control-plane that stops answering /metrics scrapes is down (or partitioned).
+      - alert: ControlPlaneDown
+        expr: up{job="control-plane"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Control-plane is not scrapeable"
+          description: "Prometheus cannot scrape the control-plane (up == 0) for 5m."
+
+  # ───────────────────────── licensing / tenants ─────────────────────────
+  - name: kadmu-licensing
+    rules:
+      # Nodes refresh an offline-grace license token periodically (§4). A spike in
+      # refresh failures means nodes can't renew — within grace it's invisible, past it
+      # playback gates (HTTP 402). Detect via 5xx on the license mint route; if a
+      # dedicated failure counter is added later, prefer it.
+      - alert: TenantLicenseRefreshFailures
+        expr: >
+          sum(rate(kadmu_requests_total{job="control-plane", route="/api/license", status=~"5.."}[10m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Tenant license-refresh failures"
+          description: >
+            License token refreshes (/api/license) are failing at >0.1/s for 15m. Nodes
+            ride the offline-grace window for now, but sustained failures will gate
+            playback (402) once grace lapses. Check signing keys and the entitlements DB.
+
+      # Sanity: subscriptions should never exceed tenants (a data-integrity smell).
+      - alert: SubscriptionTenantMismatch
+        expr: kadmu_cloud_subscriptions_active > kadmu_cloud_tenants_total
+        for: 30m
+        labels:
+          severity: info
+          team: ops
+        annotations:
+          summary: "Active subscriptions exceed tenant count"
+          description: >
+            kadmu_cloud_subscriptions_active > kadmu_cloud_tenants_total — likely a
+            metering/labeling bug. Reconcile the control-plane accounting.
+
+  # ───────────────────────── signaling / relay liveness ─────────────────────────
+  - name: kadmu-signaling
+    rules:
+      - alert: SignalingBrokerDown
+        expr: up{job="signaling"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "A signaling broker is down"
+          description: >
+            Broker {{ $labels.instance }} is unscrapeable for 5m. Caddy drops it from the
+            sticky LB; surviving brokers serve new sessions. Restart or scale out.
+
+      - alert: CoturnRelayDown
+        expr: up{job="coturn"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "coturn relay exporter unreachable"
+          description: >
+            The coturn /metrics exporter (own VPS) is unscrapeable for 5m. Relay may be
+            down OR just idle-with-exporter-off; confirm the relay VPS and exporter.

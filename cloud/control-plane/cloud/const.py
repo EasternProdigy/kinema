@@ -58,6 +58,11 @@ else:
 # Stripe Price referenced by `stripe_price` (its env var). In MOCK mode the
 # Stripe price is irrelevant — the simulator just records the chosen plan.
 # --------------------------------------------------------------------------- #
+# Phase 5: each plan carries its relay budget. `relay_cap_bytes` is the monthly TURN-relay
+# egress a tenant on this plan may use before the credential endpoint starts refusing relay
+# (P2P still works — see cloud/metering/caps.py); 0 ⇒ the plan grants no relay. `relay_max_height`
+# is the quality ceiling the connector clamps to on a relay candidate pair (cloud/metering caps §2.4).
+_GiB = 1024 ** 3
 PLANS = {
     "monthly": {
         "id": "monthly",
@@ -67,6 +72,8 @@ PLANS = {
         "interval": "month",
         "stripe_price": os.environ.get("STRIPE_PRICE_MONTHLY", ""),
         "blurb": "Accounts, billing, and managed convenience. Cancel anytime.",
+        "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_MONTHLY_GIB", "100")) * _GiB,
+        "relay_max_height": 720,
     },
     "yearly": {
         "id": "yearly",
@@ -76,9 +83,30 @@ PLANS = {
         "interval": "year",
         "stripe_price": os.environ.get("STRIPE_PRICE_YEARLY", ""),
         "blurb": "Two months free vs. monthly.",
+        "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_YEARLY_GIB", "100")) * _GiB,
+        "relay_max_height": 720,
     },
 }
 DEFAULT_PLAN = "monthly"
+
+# Map of plan id → monthly relay-byte cap, handed to the metering layer so a pricing change
+# here needs no metering redeploy (cloud/metering/caps.relay_allowed).
+PLAN_RELAY_CAPS = {pid: p.get("relay_cap_bytes", 0) for pid, p in PLANS.items()}
+
+# --------------------------------------------------------------------------- #
+# TURN relay (Phase 5). The relay itself lives in cloud/relay/ (coturn); the
+# control-plane only *mints* short-lived, entitlement-bound credentials it can
+# validate (coturn shares TURN_SECRET). All optional: with no TURN_URLS the relay
+# endpoint returns STUN-only and the browser stays P2P-only. See PHASE_5_DESIGN §2.
+# --------------------------------------------------------------------------- #
+TURN_SECRET = os.environ.get("KADMU_TURN_SECRET", "")
+TURN_URLS = [u.strip() for u in os.environ.get("KADMU_TURN_URLS", "").split(",") if u.strip()]
+STUN_URLS = [u.strip() for u in os.environ.get(
+    "KADMU_STUN_URLS", "stun:stun.l.google.com:19302").split(",") if u.strip()]
+try:
+    RELAY_CRED_TTL = max(30, int(os.environ.get("KADMU_RELAY_CRED_TTL", "120")))
+except ValueError:
+    RELAY_CRED_TTL = 120
 
 # Suggested one-time donation amounts (cents) for the OSS side.
 DONATION_PRESETS_CENTS = [500, 1500, 5000]

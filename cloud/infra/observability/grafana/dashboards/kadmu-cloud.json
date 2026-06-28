@@ -1,0 +1,568 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Kadmu Cloud — Phase 5 scale & cost control. Relay egress vs budget (the money panel), relay sessions, tenants over cap, signaling, control-plane, and coturn.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["kadmu", "cloud", "phase5", "cost-control"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Kadmu Cloud — Scale & Cost Control",
+  "uid": "kadmu-cloud",
+  "version": 1,
+  "weekStart": "",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Relay cost control (the money)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Aggregate relay egress vs. monthly budget (~30d)",
+      "description": "sum(increase(kadmu_relay_bytes_total[30d])) against the 2 TiB fleet budget line. The backstop above per-tenant caps — see alerts.yml RelayEgressOverBudget.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 1 },
+      "id": 1,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1759218604442 },
+              { "color": "red", "value": 2199023255552 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Fleet budget (2 TiB)" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+              { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "custom.fillOpacity", "value": 0 }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum(increase(kadmu_relay_bytes_total[30d]))",
+          "legendFormat": "Relay egress (30d)"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "vector(2199023255552)",
+          "legendFormat": "Fleet budget (2 TiB)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Relay egress used (30d)",
+      "description": "Current aggregate relay bytes over the trailing 30d vs. the 2 TiB budget.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 1 },
+      "id": 2,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "max": 2199023255552,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1759218604442 },
+              { "color": "red", "value": 2199023255552 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum(increase(kadmu_relay_bytes_total[30d]))",
+          "legendFormat": "egress"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Relay sessions active",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 10 },
+      "id": 3,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "kadmu_relay_sessions_active",
+          "legendFormat": "active"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Tenants over cap",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 10 },
+      "id": 4,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "kadmu_relay_tenants_over_cap",
+          "legendFormat": "over cap"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Relay fallback ratio",
+      "description": "Relay sessions / active signaling hosts. Above ~20% (alerts.yml RelayFallbackRatioHigh) → investigate STUN/NAT before paying for relay.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 10 },
+      "id": 5,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.2 },
+              { "color": "red", "value": 0.4 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "kadmu_relay_sessions_active / clamp_min(sum(kadmu_signal_hosts), 1)",
+          "legendFormat": "fallback ratio"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Relay tenants total",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 10 },
+      "id": 6,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "kadmu_relay_tenants_total",
+          "legendFormat": "tenants"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Relay egress by plan (rate)",
+      "description": "Per-plan relay byte rate — where egress is concentrated.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 7,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum by (plan) (rate(kadmu_relay_bytes_total[5m]))",
+          "legendFormat": "{{plan}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Signaling",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 101,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Signaling peers & hosts",
+      "description": "Active peers (guests+hosts) and hosts (≈ active node sessions) per broker.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "id": 8,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum(kadmu_signal_peers)",
+          "legendFormat": "peers (total)"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum(kadmu_signal_hosts)",
+          "legendFormat": "hosts (total)"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "kadmu_signal_peers",
+          "legendFormat": "peers {{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Signaling registrations & messages (rate)",
+      "description": "Handshake throughput — registrations/sec and relayed messages/sec across brokers.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
+      "id": 9,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum(rate(kadmu_signal_registrations_total[5m]))",
+          "legendFormat": "registrations/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum(rate(kadmu_signal_messages_total[5m]))",
+          "legendFormat": "messages/s"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Control-plane & accounts",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "id": 102,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Control-plane request & error rate",
+      "description": "kadmu_requests_total for the control-plane job — total throughput and 5xx rate.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "id": 10,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "5xx errors/s" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum(rate(kadmu_requests_total{job=\"control-plane\"}[5m]))",
+          "legendFormat": "requests/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "sum(rate(kadmu_requests_total{job=\"control-plane\", status=~\"5..\"}[5m]))",
+          "legendFormat": "5xx errors/s"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Accounts / subscriptions / tenants",
+      "description": "Business gauges from the control-plane.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "id": 11,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "kadmu_cloud_accounts_total",
+          "legendFormat": "accounts"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "kadmu_cloud_subscriptions_active",
+          "legendFormat": "active subs"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "kadmu_cloud_tenants_total",
+          "legendFormat": "tenants"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "coturn relay",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
+      "id": 103,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "coturn traffic (bytes/s)",
+      "description": "turn_traffic_sentb / turn_traffic_rcvb rates — the relay byte throughput.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 43 },
+      "id": 12,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "rate(turn_traffic_sentb[5m])",
+          "legendFormat": "sent B/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "rate(turn_traffic_rcvb[5m])",
+          "legendFormat": "received B/s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "coturn packets & allocations",
+      "description": "turn_traffic_sentp/rcvp packet rates and total allocations.",
+      "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 43 },
+      "id": 13,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total allocations" },
+            "properties": [{ "id": "custom.axisPlacement", "value": "right" }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "rate(turn_traffic_sentp[5m])",
+          "legendFormat": "sent pkts/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "rate(turn_traffic_rcvp[5m])",
+          "legendFormat": "received pkts/s"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "kadmu-prometheus" },
+          "expr": "turn_total_allocations",
+          "legendFormat": "total allocations"
+        }
+      ]
+    }
+  ]
+}

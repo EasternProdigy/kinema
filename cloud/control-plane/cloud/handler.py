@@ -3,13 +3,15 @@ dashboard, the Stripe webhook, and the machine-to-machine /api/license endpoint 
 tenant's node polls. One BaseHTTPRequestHandler subclass, plain if/elif routing —
 same spirit as the node's handler."""
 from __future__ import annotations
+import ipaddress
 import json
+import os
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-from . import (accounts, const, entitlements, pages, stripe_client, webhooks)
+from . import (accounts, const, entitlements, pages, relaycreds, stripe_client, webhooks)
 from .db import db
 
 CSP = ("default-src 'self'; img-src 'self'; style-src 'self'; script-src 'none'; "
@@ -120,6 +122,10 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/healthz":
             return self._json({"ok": True, "app": const.APP_NAME,
                                "version": const.APP_VERSION, "mock": const.MOCK})
+        if route == "/metrics":
+            return self._metrics()
+        if route == "/api/relay-credentials":
+            return self._relay_credentials(qs)
         if route in ("/", "/index.html"):
             return self._html(pages.landing())
         if route == "/pricing":
@@ -340,3 +346,48 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": False, "status": "inactive", "reason": payload}, 402)
         return self._json({"ok": True, "license": token, "exp": payload["exp"],
                            "grace": payload["grace"], "issued": int(time.time())})
+
+    # -- Phase 5: entitlement-bound TURN credentials (the relay cap gate) ---- #
+    def _relay_credentials(self, qs):
+        """Mint short-lived TURN credentials for an entitled, under-cap tenant — or refuse
+        (STUN-only) when the plan grants no relay / the cap is reached / the sub is inactive.
+        Two callers, two auth paths: the node's connector proves possession of the tenant
+        secret (tenant/ts/sig, same scheme as /api/license); the owner's browser uses its
+        dashboard session. See cloud/metering/ and PHASE_5_DESIGN §2.2/§6.1."""
+        now = time.time()
+        t = (qs.get("tenant") or [""])[0]
+        ts = (qs.get("ts") or [""])[0]
+        sig = (qs.get("sig") or [""])[0]
+        if t or ts or sig:                       # machine path: tenant proof
+            row = entitlements.verify_tenant_proof(t, ts, sig)
+            if row is None:
+                return self._json({"relay": False, "reason": "unauthorized"}, 401)
+            account_id, tenant_id = row["account_id"], row["id"]
+        else:                                    # browser path: dashboard session
+            acct = self._account()
+            if not acct:
+                return self._json({"relay": False, "reason": "unauthorized",
+                                   "needAuth": True}, 401)
+            account_id = acct["id"]
+            tenant_id = (entitlements.provision_tenant(account_id) or {}).get("id")
+        sub = entitlements.active_subscription(account_id)
+        if sub is None or not tenant_id:
+            return self._json({"relay": False, "reason": "no_active_subscription"}, 402)
+        return self._json(relaycreds.relay_credentials(tenant_id, sub["plan"], now))
+
+    # -- Phase 5: Prometheus metrics (relay metering + control-plane gauges) - #
+    def _metrics(self):
+        """Scrape endpoint for cloud/infra/observability. Readable from loopback or a private
+        network (the internal Prometheus container); a public scrape is refused unless
+        KADMU_CLOUD_METRICS_OPEN is set. Exposes only aggregate counts, never secrets."""
+        ip = self.client_address[0] if self.client_address else ""
+        if os.environ.get("KADMU_CLOUD_METRICS_OPEN", "") not in ("1", "true", "yes"):
+            try:
+                addr = ipaddress.ip_address(ip)
+                allowed = addr.is_loopback or addr.is_private
+            except ValueError:
+                allowed = False
+            if not allowed:
+                return self._json({"error": "forbidden"}, 403)
+        self._send(relaycreds.metrics_text(time.time()),
+                   "text/plain; version=0.0.4; charset=utf-8")

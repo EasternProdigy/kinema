@@ -29,7 +29,21 @@
   } : null);
   if (!CFG) return;                                   // not a remote session — stay dormant
 
-  const ICE = CFG.iceServers || [{ urls: "stun:stun.l.google.com:19302" }];
+  // ICE servers: start from whatever the shell injected, then (Phase 5) refresh from the
+  // control-plane's entitlement-bound relay-credentials endpoint right before connecting, so an
+  // over-budget / inactive tenant transparently falls back to STUN-only (P2P) instead of relay.
+  let ICE = CFG.iceServers || [{ urls: "stun:stun.l.google.com:19302" }];
+  const CREDS_URL = CFG.credsUrl ||
+    (window.KADMU_CLOUD_URL ? window.KADMU_CLOUD_URL.replace(/\/$/, "") + "/api/relay-credentials" : null);
+
+  async function refreshIce() {
+    if (!CREDS_URL) return;
+    try {
+      const r = await realFetch(CREDS_URL, { credentials: "include" });
+      const info = await r.json();
+      if (info && Array.isArray(info.iceServers) && info.iceServers.length) ICE = info.iceServers;
+    } catch (_) { /* keep the existing ICE — relay is a bonus, never a hard dependency */ }
+  }
 
   // ── wire codec — must match cloud/wire.py byte-for-byte ─────────────────────────────────
   const REQ = 0x01, DATA = 0x02, END = 0x03, RES = 0x04, ABORT = 0x05;
@@ -59,10 +73,13 @@
   }
 
   // ── signaling (plain fetch to the cloud broker — opaque SDP only) ────────────────────────
+  // X-Kadmu-Node pins guest+host to one broker instance behind a sticky LB (cloud/infra,
+  // §3). Uses the original fetch (realFetch) so signaling never loops through the P2P proxy.
   const sig = (path, body) =>
-    fetch(CFG.signal.replace(/\/$/, "") + path, {
+    realFetch(CFG.signal.replace(/\/$/, "") + path, {
       method: body ? "POST" : "GET",
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: Object.assign({ "X-Kadmu-Node": CFG.node },
+        body ? { "Content-Type": "application/json" } : {}),
       body: body ? JSON.stringify(body) : undefined,
     }).then((r) => r.json());
 
@@ -74,6 +91,7 @@
   function connect() {
     if (ready) return ready;
     ready = (async () => {
+      await refreshIce();                                // Phase 5: entitlement-bound TURN (or STUN-only)
       const me = await sig("/signal/register", { role: "guest", node: CFG.node, token: CFG.token });
       if (me.error) throw new Error("remote: " + me.error);
       pc = new RTCPeerConnection({ iceServers: ICE });

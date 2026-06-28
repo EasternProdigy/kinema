@@ -9,10 +9,12 @@
 > self-hosters): **Phase 4a** (accounts/billing/licensing control-plane) is **🚧 scaffolded —
 > runs end-to-end in mock mode, needs live Stripe keys**; **Phase 4b** (P2P/WebRTC
 > remote-from-anywhere) is **🚧 built — needs real-network integration testing** (and an
-> fMP4 remux path for remote video, §4b); **Phase 5** (scale & cost control) is **📐 designed**
-> ([docs/PHASE_5_DESIGN.md](PHASE_5_DESIGN.md)) — its production pieces are live infrastructure
-> (TURN/CDN/object-storage/Stripe) that needs external accounts and spend, deferred until Cloud
-> launch. See the §1–§5 markers and the changelog.
+> fMP4 remux path for remote video, §4b); **Phase 5** (scale & cost control) is **🚧 built —
+> code + config-as-code** (metering core with 21 tests, the relay-credential cap gate, capped
+> coturn config, sticky-scale signaling, flag-gated CDN cache-busting, and the
+> Caddy/Compose/Prometheus/Grafana stack). The remaining Phase 4–5 work is **operational, not
+> code**: live Stripe/TURN secrets, VPS(es), DNS, a Cloudflare account, real-network P2P testing.
+> See the §1–§5 markers and the changelog.
 
 Goal: the **best browser-based player for your own video files** — VLC-grade per-file power,
 Netflix-grade ease of use — shipped as **two editions from one codebase**:
@@ -261,19 +263,24 @@ paid wrapper — egress ≈ $0 (license checks + app shell only).
 > so remote *video* needs an fMP4 profile in `build_remux` (small clips already fall back to a
 > progressive blob). This is the main follow-up.
 
-### Phase 5 — Scale & cost control *(edition: Hosted)* — 📐 DESIGNED
+### Phase 5 — Scale & cost control *(edition: Hosted)* — 🚧 BUILT (code + config; live infra is a deploy step)
 - Signaling/relay infra scaling; CDN for the static app shell.
 - Horizontal scale of the control plane: stateless API + shared DB; ThreadingHTTPServer limits
   (~100–200 concurrent/node) inform the self-host node, not the (now thin) cloud.
 - Relay-cost monitoring + per-plan caps so the ~10–20% relay minority can't blow the budget.
-> **Design-only deliverable:** [docs/PHASE_5_DESIGN.md](PHASE_5_DESIGN.md) specifies the whole
-> scale/cost-control plan (capped coturn relay + per-plan byte caps, sticky-by-node-id signaling
-> LB, SQLite→Litestream→R2 then a documented Postgres cutover, a Cloudflare-Free CDN with
-> build-free `?v=APP_VERSION` cache-busting, Prometheus/Grafana over the Phase 3 `/metrics`),
-> with service contracts to 4a/4b and an ordered build plan. **Implementation is not code —
-> it's live infrastructure** (TURN servers, CDN, object storage, real Stripe keys) that requires
-> external accounts/DNS/spend to stand up; it is intentionally deferred until Cloud launch demand
-> justifies the run cost.
+> **Built (code + config-as-code; design in [docs/PHASE_5_DESIGN.md](PHASE_5_DESIGN.md)):** the
+> cost guardrail **`cloud/metering/`** (stdlib — per-tenant relay-byte metering + per-plan caps +
+> the coturn ephemeral-credential scheme + a coturn-Prometheus collector, 21 unit tests); the
+> control-plane's entitlement-bound **`GET /api/relay-credentials`** (mints a short-TTL TURN
+> credential only for an active, under-cap tenant — else STUN-only) and a **`/metrics`** endpoint;
+> the capped **`cloud/relay/`** coturn config (use-auth-secret, ≤720p/≈3 Mbps caps, SSRF-deny) +
+> collector wiring; **`cloud/signaling/`** sticky-scale extensions (`X-Kadmu-Node` routing key,
+> env-tunable TTLs, `/metrics`) with matching `connector`/`remote.js` ICE wiring + relay quality
+> clamp; flag-gated **CDN cache-busting** in the core (`--cdn` → immutable long-cache + `?v=`,
+> off by default so self-host is unchanged); and the **`cloud/infra/`** stack (Caddy sticky LB,
+> `docker-compose.scale.yml`, Cloudflare-Free CDN notes, Prometheus + Grafana dashboards/alerts).
+> **What's left is operational, not code:** provision the VPS(es), DNS, a Cloudflare account, real
+> Stripe + TURN secrets, point Litestream at R2, then `docker compose up` — see the cloud READMEs.
 
 ---
 

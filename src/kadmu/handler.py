@@ -69,6 +69,23 @@ CSP = ("default-src 'self'; img-src 'self' data:; media-src 'self'; "
        "font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
        "form-action 'self'")
 
+# Phase 5 — CDN cache-busting (only active when rt.CDN, i.e. the hosted edition behind a CDN).
+IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+# Add ?v=APP_VERSION to the shell's own asset references so a new release busts the edge cache
+# without a build step. Only local /js, /style.css, /qr.js refs — never external URLs.
+_VERSIONABLE = re.compile(r'(src|href)="(/(?:js/[^"?]+\.js|style\.css|qr\.js))"')
+
+
+def _cache_for_asset():
+    """Cache-Control for /js, /fonts, /style.css: immutable long-cache under the CDN flag,
+    else the self-host default (no header → easy local edits)."""
+    return IMMUTABLE_CACHE if rt.CDN else False
+
+
+def _version_shell_html(data: bytes) -> bytes:
+    """Append ?v=APP_VERSION to the shell's local asset refs (CDN mode only)."""
+    return _VERSIONABLE.sub(rf'\1="\2?v={APP_VERSION}"', data.decode("utf-8")).encode("utf-8")
+
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -152,7 +169,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        if cache:
+        # cache: True → the normal private day cache; False → no header (self-host default);
+        # a string → that exact Cache-Control (Phase 5 CDN passes the immutable long-cache).
+        if isinstance(cache, str):
+            self.send_header("Cache-Control", cache)
+        elif cache:
             self.send_header("Cache-Control", "private, max-age=86400")
         self.end_headers()
         if self.command != "HEAD":
@@ -430,11 +451,19 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "missing asset"}, 404)
             return
         data = fp.read_bytes()
+        is_shell = route in ("/", "/index.html")
+        if is_shell and rt.CDN:
+            data = _version_shell_html(data)         # ?v=APP_VERSION on asset refs (CDN busting)
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache")
-        if route in ("/", "/index.html"):
+        # The shell (and favicon/manifest/sw) stay short-cached so a release is picked up; under
+        # the CDN flag, style.css joins the immutable long-cache (its ?v= changes per release).
+        if route == "/style.css" and rt.CDN:
+            self.send_header("Cache-Control", IMMUTABLE_CACHE)
+        else:
+            self.send_header("Cache-Control", "no-cache")
+        if is_shell:
             self.send_header("Content-Security-Policy", CSP)
         self.end_headers()
         if self.command != "HEAD":
@@ -662,7 +691,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "not found"}, 404)
             fp = WEB_DIR / "fonts" / name
             if fp.is_file():
-                return self._send_bytes(fp.read_bytes(), "font/woff2")
+                return self._send_bytes(fp.read_bytes(), "font/woff2",
+                                        cache=(IMMUTABLE_CACHE if rt.CDN else True))
             return self._send_json({"error": "not found"}, 404)
 
         # The frontend is a set of ordered classic scripts under web/js/.
@@ -673,7 +703,8 @@ class Handler(BaseHTTPRequestHandler):
             fp = WEB_DIR / "js" / name
             if fp.is_file():
                 return self._send_bytes(fp.read_bytes(),
-                                        "application/javascript; charset=utf-8", cache=False)
+                                        "application/javascript; charset=utf-8",
+                                        cache=_cache_for_asset())
             return self._send_json({"error": "not found"}, 404)
 
         if route == "/api/session":

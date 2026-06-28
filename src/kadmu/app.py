@@ -216,6 +216,10 @@ def main():
                              "(also needs --tenant and KADMU_CLOUD_SECRET)")
     parser.add_argument("--tenant", metavar="ID", default=os.environ.get("KADMU_CLOUD_TENANT"),
                         help="this node's Kadmu Cloud tenant id (from your dashboard)")
+    parser.add_argument("--cdn", action="store_true",
+                        default=os.environ.get("KADMU_CDN") in ("1", "true", "yes"),
+                        help="emit immutable long-cache headers + ?v=APP_VERSION on the static "
+                             "app shell (for serving behind a CDN; off for normal self-host)")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     args = parser.parse_args()
 
@@ -265,6 +269,7 @@ def main():
     # ops / hardening flags (Phase 3)
     rt.RATE_LIMIT = not args.no_rate_limit
     rt.LOG_REQUESTS = bool(args.log_requests)
+    rt.CDN = bool(args.cdn)
     rt.ACCESS_LOG_PATH = os.environ.get("KADMU_ACCESS_LOG") or None
 
     # Optional built-in TLS: cert+key from --tls or KADMU_TLS_CERT/KADMU_TLS_KEY.

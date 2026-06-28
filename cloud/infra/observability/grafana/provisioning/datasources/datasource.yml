@@ -1,0 +1,17 @@
+# Kadmu Cloud — Grafana datasource provisioning (Phase 5 observability).
+# Auto-loaded by Grafana on boot (mounted at /etc/grafana/provisioning/datasources).
+# Points at the self-hosted Prometheus in the same Compose stack.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    uid: kadmu-prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s        # matches prometheus.yml scrape_interval
+      httpMethod: POST

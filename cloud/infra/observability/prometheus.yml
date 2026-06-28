@@ -1,0 +1,65 @@
+# Kadmu Cloud — Prometheus scrape config (Phase 5 observability, §8).
+#
+# Self-hosted on the ops box (docker-compose.scale.yml → `prometheus`). It scrapes the
+# /metrics each Kadmu service already exposes (Phase 3 added them to the core node) — no
+# managed-APM per-host bill. Targets use Compose service DNS for in-stack services and a
+# routable host for the relay, which lives on its OWN VPS (cloud/relay/).
+#
+# Metric names this fleet exposes (kept in lockstep with the services and alerts.yml):
+#   control-plane /metrics : kadmu_relay_bytes_total{plan}, kadmu_relay_tenants_over_cap,
+#                            kadmu_relay_sessions_active, kadmu_relay_tenants_total,
+#                            kadmu_cloud_accounts_total, kadmu_cloud_subscriptions_active,
+#                            kadmu_cloud_tenants_total
+#   signaling     /metrics : kadmu_signal_peers, kadmu_signal_hosts,
+#                            kadmu_signal_registrations_total, kadmu_signal_messages_total
+#   coturn        /metrics : turn_traffic_rcvp, turn_traffic_sentp, turn_traffic_rcvb,
+#                            turn_traffic_sentb, turn_total_allocations
+#   core node     /metrics : kadmu_requests_total   (Phase 3)
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    fleet: kadmu-cloud
+
+# Alerting rules (the money alert + operational backstops) live alongside.
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  # ── Control-plane: accounts/billing + the relay-metering series (the cost core). ──
+  - job_name: control-plane
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["control-plane:8787"]
+
+  # ── Signaling brokers (scaled out, sticky). Add sigN here when you add a broker. ──
+  - job_name: signaling
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["sig1:8443", "sig2:8443"]
+        # - "sig3:8443"   # ← uncomment when scaling out (mirror the Caddyfile upstream)
+
+  # ── coturn relay — on its OWN VPS; its Prometheus exporter listens on :9641. ──
+  # Set RELAY_HOST in .env; Prometheus has no env interpolation, so edit the target
+  # below to match (or template it at deploy time).
+  - job_name: coturn
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["relay.kadmu.app:9641"]
+        labels:
+          role: relay
+
+  # ── Core node /metrics (Phase 3) — the app-shell origin behind the CDN. ──
+  - job_name: core-node
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app-origin:8000"]
+        labels:
+          role: origin
+
+  # ── Prometheus self-scrape (cheap; useful for rule/eval health). ──
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -38,9 +38,11 @@ from urllib.parse import urlparse, parse_qs
 
 SECRET = os.environ.get("KADMU_SIGNAL_SECRET", "").encode("utf-8")
 DEV_MODE = not SECRET                    # no secret ⇒ accept any token (local dev only)
-POLL_TIMEOUT = 25                        # seconds a long-poll blocks before returning empty
-PEER_TTL = 60                            # drop a peer not seen (polled/sent) for this long
+# Tunable for Phase 5 horizontal scale (cloud/infra/docker-compose.scale.yml sets these per box).
+POLL_TIMEOUT = max(1, int(os.environ.get("KADMU_SIGNAL_POLL_TIMEOUT", "25")))   # long-poll block, seconds
+PEER_TTL = max(5, int(os.environ.get("KADMU_SIGNAL_PEER_TTL", "60")))           # drop a peer unseen this long
 TOKEN_TTL = 24 * 3600                    # minted tokens are valid this long
+NODE_HEADER = "X-Kadmu-Node"             # both peers send it so a sticky LB pins them to one broker
 RELAY_TYPES = {"offer", "answer", "candidate", "bye"}   # the only blobs we'll forward
 
 
@@ -85,6 +87,8 @@ class Hub:
         self._peers = {}                 # peer_id -> {node, role, box: Queue, seen}
         self._hosts = {}                 # node -> host peer_id
         self._seq = 0
+        self.registrations = 0           # cumulative — Prometheus counters (see stats())
+        self.messages = 0
 
     def _new_id(self, role):
         self._seq += 1
@@ -93,6 +97,7 @@ class Hub:
     def register(self, role, node):
         with self._lock:
             self._reap_locked()
+            self.registrations += 1
             pid = self._new_id(role)
             self._peers[pid] = {"node": node, "role": role,
                                 "box": queue.Queue(maxsize=256), "seen": time.time()}
@@ -117,7 +122,16 @@ class Hub:
                 dst["box"].put_nowait(envelope)
             except queue.Full:
                 return False
+            self.messages += 1
             return True
+
+    def stats(self):
+        """Snapshot for the /metrics endpoint: live peers/hosts (gauges) and cumulative
+        registrations/messages (counters)."""
+        with self._lock:
+            self._reap_locked()
+            return {"peers": len(self._peers), "hosts": len(self._hosts),
+                    "registrations": self.registrations, "messages": self.messages}
 
     def box_for(self, peer):
         with self._lock:
@@ -181,6 +195,33 @@ class SignalHandler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             return {}
 
+    def _metrics(self):
+        """Prometheus exposition for cloud/infra/observability — live peers/hosts and
+        cumulative registrations/messages. The autoscale signal scales brokers out (§3.1)."""
+        s = HUB.stats()
+        body = (
+            "# HELP kadmu_signal_peers Currently-registered signaling peers.\n"
+            "# TYPE kadmu_signal_peers gauge\n"
+            f"kadmu_signal_peers {s['peers']}\n"
+            "# HELP kadmu_signal_hosts Currently-registered host nodes.\n"
+            "# TYPE kadmu_signal_hosts gauge\n"
+            f"kadmu_signal_hosts {s['hosts']}\n"
+            "# HELP kadmu_signal_registrations_total Peer registrations since start.\n"
+            "# TYPE kadmu_signal_registrations_total counter\n"
+            f"kadmu_signal_registrations_total {s['registrations']}\n"
+            "# HELP kadmu_signal_messages_total Relayed signaling messages since start.\n"
+            "# TYPE kadmu_signal_messages_total counter\n"
+            f"kadmu_signal_messages_total {s['messages']}\n"
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def do_OPTIONS(self):
         self.send_response(204)
         self._cors()
@@ -190,6 +231,8 @@ class SignalHandler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/healthz":
             return self._json(200, {"ok": True, "dev": DEV_MODE})
+        if url.path == "/metrics":
+            return self._metrics()
         if url.path == "/signal/poll":
             peer = (parse_qs(url.query).get("peer") or [""])[0]
             box = HUB.box_for(peer)

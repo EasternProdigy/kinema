@@ -1,0 +1,140 @@
+# Kadmu Cloud — the scaled fleet (Phase 5, config-as-code).
+#
+# One Docker Compose stack for the ops/control box: Caddy (TLS + sticky LB), the
+# control-plane, TWO signaling brokers behind the sticky LB, and self-hosted
+# Prometheus + Grafana. Everything is stdlib Python or an off-the-shelf binary we
+# only *run* — explicitly NOT Kubernetes/Terraform (premature for this scale, §1).
+#
+#   docker compose -f cloud/infra/docker-compose.scale.yml --env-file cloud/infra/.env up -d
+#
+# NOTE — the coturn TURN relay is NOT in this stack. It runs on its OWN small VPS
+# from `cloud/relay/docker-compose.yml` so its (capped, metered) egress is isolated
+# from the control box. Prometheus here scrapes it across the network (see
+# observability/prometheus.yml → the `coturn` job; set RELAY_HOST in .env).
+#
+# Secrets/tunables come from cloud/infra/.env (see .env.example) — nothing hard-coded.
+
+name: kadmu-cloud
+
+services:
+  # ───────────────────────── reverse proxy + sticky LB (TLS) ─────────────────────────
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"        # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # ACME certs + keys (persist across restarts)
+      - caddy_config:/config
+    depends_on:
+      - control-plane
+      - sig1
+      - sig2
+    networks: [kadmu]
+
+  # ───────────────────────── control-plane (one box — §4) ─────────────────────────
+  # Accounts, Stripe billing/webhooks, entitlements, the relay-credentials endpoint,
+  # and /metrics (incl. the relay-metering series). Stays a SINGLE instance until the
+  # documented Postgres + N-instance cutover (see observability/README.md runbook).
+  control-plane:
+    image: python:3.12-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: ["python3", "cloud/control-plane/server.py"]
+    env_file: [.env]
+    environment:
+      KADMU_CLOUD_HOST: "0.0.0.0"
+      KADMU_CLOUD_PORT: "8787"
+    volumes:
+      - ../..:/app:ro                          # repo mounted read-only (stdlib, no build)
+      - control_plane_data:/app/cloud/control-plane/data   # SQLite (cloud.db) — writable
+    networks: [kadmu]
+    # Durability: replicate cloud.db → R2 with Litestream (sidecar/cron, see §4) so a
+    # box loss restores in seconds. Litestream config is out of scope for this stack.
+
+  # ───────────────────────── signaling brokers (scale OUT, sticky) ─────────────────────────
+  # Two identical stdlib brokers. Caddy pins each session's guest+host to one of them
+  # by hashing X-Kadmu-Node (Caddyfile → lb_policy header), so NO shared state is
+  # needed. Add more by copying a block (sig3, sig4 …) and listing it in the Caddyfile
+  # `reverse_proxy sig1:8443 sig2:8443 sig3:8443` upstreams.
+  #
+  # Alternatively scale the SAME service:
+  #   docker compose -f docker-compose.scale.yml up -d --scale sig1=3
+  # (then the upstream is the service DNS name; either approach keeps the sticky hash.)
+  sig1:
+    image: python:3.12-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: ["python3", "cloud/signaling/server.py"]
+    env_file: [.env]
+    environment:
+      KADMU_SIGNAL_PORT: "8443"
+      KADMU_SIGNAL_SECRET: "${KADMU_SIGNAL_SECRET}"
+      KADMU_SIGNAL_ORIGIN: "${KADMU_SIGNAL_ORIGIN:-https://app.kadmu.app}"
+      KADMU_SIGNAL_PEER_TTL: "${KADMU_SIGNAL_PEER_TTL:-60}"
+      KADMU_SIGNAL_POLL_TIMEOUT: "${KADMU_SIGNAL_POLL_TIMEOUT:-25}"
+    volumes:
+      - ../..:/app:ro
+    networks: [kadmu]
+
+  sig2:
+    image: python:3.12-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: ["python3", "cloud/signaling/server.py"]
+    env_file: [.env]
+    environment:
+      KADMU_SIGNAL_PORT: "8443"
+      KADMU_SIGNAL_SECRET: "${KADMU_SIGNAL_SECRET}"
+      KADMU_SIGNAL_ORIGIN: "${KADMU_SIGNAL_ORIGIN:-https://app.kadmu.app}"
+      KADMU_SIGNAL_PEER_TTL: "${KADMU_SIGNAL_PEER_TTL:-60}"
+      KADMU_SIGNAL_POLL_TIMEOUT: "${KADMU_SIGNAL_POLL_TIMEOUT:-25}"
+    volumes:
+      - ../..:/app:ro
+    networks: [kadmu]
+
+  # ───────────────────────── observability (self-hosted, $0) ─────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=90d"   # keep ~one billing quarter for the budget alerts
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    networks: [kadmu]
+    # Not published to the internet — reach it through Grafana, or an SSH tunnel.
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:3000}"
+    ports:
+      - "127.0.0.1:3000:3000"   # bind to loopback; front with Caddy or an SSH tunnel
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks: [kadmu]
+
+networks:
+  kadmu:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  control_plane_data:
+  prometheus_data:
+  grafana_data:

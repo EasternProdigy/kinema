@@ -17,6 +17,14 @@ jobs:
         run: python -m py_compile src/server.py src/kadmu/*.py
       - name: Syntax-check the frontend
         run: for f in src/web/*.js src/web/js/*.js; do node --check "$f"; done
+      - name: Cloud layer — compile + unit tests (stdlib only; not shipped to self-hosters)
+        run: |
+          python -m py_compile cloud/wire.py cloud/signaling/server.py \
+            cloud/connector/connector.py cloud/metering/*.py \
+            cloud/control-plane/server.py cloud/control-plane/cloud/*.py
+          # Phase 4b framing/signaling + Phase 5 metering/caps/turncreds/collector tests.
+          python -m unittest discover -s cloud/tests
+          python -m unittest discover -s cloud/metering/tests
       - name: Boot smoke test
         run: |
           python src/server.py --no-open --port 8011 &

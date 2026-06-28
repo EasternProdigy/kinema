@@ -1,11 +1,15 @@
-# Phase 5 — Scale & cost control (design)
+# Phase 5 — Scale & cost control (design + implementation)
 
-> **Status: design only (plan).** Phase 5 is *edition: Hosted* and builds entirely on
-> **Phase 4a** (control-plane / billing / entitlements) and **Phase 4b** (P2P remote:
-> signaling broker + connector). Both are in flight and **not yet committed**, so this
-> document specifies what to build and — crucially — the **service contracts** with 4a/4b so
-> implementation can begin with minimal reconciliation the moment they land. Nothing here
-> touches the open-source core (`src/kadmu/`); it all lives under `cloud/`.
+> **Status: BUILT (code + config-as-code); live infra is a deploy step.** 4a and 4b have
+> landed, and this design is now implemented under `cloud/`: the metering core
+> (`cloud/metering/`, stdlib, 21 tests), the entitlement-bound relay-credential + `/metrics`
+> routes in the control-plane, the capped coturn config + collector (`cloud/relay/`), the
+> sticky-scale signaling extensions + connector/`remote.js` ICE wiring, the flag-gated CDN
+> cache-busting in the core (`--cdn`), and the Caddy/Compose/Prometheus/Grafana stack
+> (`cloud/infra/`). What remains is **operational, not code**: provision the VPS(es), DNS, a
+> Cloudflare account, real Stripe + TURN secrets, then `docker compose up`. The deltas vs. this
+> plan are noted inline as **[built]**. Nothing here touches the open-source core's promises;
+> the one core change (the CDN flag, §5) is off by default so self-host is byte-identical.
 
 > **The north star:** *keep our cloud cost ≈ $0.* Per [ROADMAP §5](ROADMAP.md#5-cost-model--local-files-keep-our-egress-near-zero-decided),
 > the cloud never stores or pipes video — it's accounts + billing + the connection handshake.
