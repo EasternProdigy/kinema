@@ -20,7 +20,32 @@ async function renderCatalog() {
 
   renderTitleGrid(showsSec, $("#showsGrid"), shows);
   renderTitleGrid(moviesSec, $("#moviesGrid"), movies);
+  renderRecommendations();                   // taste-based rows above the full grids
   return state.catalogHasItems;
+}
+
+// "For you" rows (Keep watching / Top picks / Because you liked X), from /api/recommendations
+// — built from the viewer's own thumbs ratings + watch history (+ TMDB genres when enabled).
+// Each row reuses titleCard(), so a recommendation tile behaves exactly like a catalog tile.
+async function renderRecommendations() {
+  const sec = $("#recoSection");
+  if (!sec) return;
+  let data = null;
+  try { data = await api("/api/recommendations"); } catch { /* leave hidden */ }
+  const rows = (data && data.rows) || [];
+  if (!rows.length) { sec.classList.add("hidden"); sec.innerHTML = ""; return; }
+  sec.innerHTML = "";
+  for (const row of rows) {
+    const wrap = el("section", "row-section reco-row");
+    const h = el("h2", "row-title");
+    h.textContent = row.title;
+    wrap.appendChild(h);
+    const grid = el("div", "grid title-grid");
+    for (const it of row.items) grid.appendChild(titleCard(it));
+    wrap.appendChild(grid);
+    sec.appendChild(wrap);
+  }
+  sec.classList.remove("hidden");
 }
 
 function renderTitleGrid(sec, grid, items) {
@@ -81,7 +106,7 @@ let titleNow = null;
 
 const HOME_AND_LIB_SECTIONS = [
   "#homeHero", "#continueSection", "#recentSection", "#mylistSection",
-  "#showsSection", "#moviesSection", "#homeBar", "#libToolbar",
+  "#recoSection", "#showsSection", "#moviesSection", "#homeBar", "#libToolbar",
   "#folderSection", "#videoSection", "#emptyState",
 ];
 

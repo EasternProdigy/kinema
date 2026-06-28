@@ -33,6 +33,7 @@ from .store import (
     set_config, set_progress, set_rating,
 )
 from .catalog import build_catalog, title_detail
+from .recommend import recommend_for_viewer
 from .security import (
     host_allowed, is_loopback, login_check, login_fail, login_ok, new_session,
     parse_cookies, password_required, session_valid, set_lan_mode, set_password,
@@ -832,6 +833,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/api/catalog":
             return self._send_json(build_catalog())
+
+        if route == "/api/recommendations":
+            return self._send_json(recommend_for_viewer())
 
         if route == "/api/title":
             raw = qs.get("id", [None])[0] or qs.get("path", [None])[0]
