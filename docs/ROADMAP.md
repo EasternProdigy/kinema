@@ -1,9 +1,11 @@
 # Kadmu Roadmap — from LAN app to dual self-host + hosted product
 
-> Status: **in progress.** Phase 1 "Tier 0" player polish (audio-track picker, subtitle
-> styling + sync) has landed, and **Phase 2 (accounts & multi-user, opt-in `--accounts`) is
-> shipped** — see the §2 marker and the changelog. This document remains the agreed direction;
-> we keep implementing phase by phase, settling the open decisions in §6 as we go.
+> Status: **in progress.** **Phase 1 (the VLC-grade player + a genuinely good frontend +
+> a local-data discovery home + LAN watch party) is shipped** — only metadata enrichment
+> (the opt-in TMDB/.nfo call) is deliberately deferred (see §6.3). **Phase 2 (accounts &
+> multi-user, opt-in `--accounts`) is shipped** too. See the §1/§2 markers and the changelog.
+> This document remains the agreed direction; we keep implementing phase by phase, settling
+> the remaining open decisions in §6 as we go.
 
 Goal: the **best browser-based player for your own video files** — VLC-grade per-file power,
 Netflix-grade ease of use — shipped as **two editions from one codebase**:
@@ -147,31 +149,36 @@ fits the existing design.
 Each phase is shippable on its own. Self-host benefits from 1–3 immediately; Cloud needs
 2–4 before it can launch.
 
-### Phase 1 — The player & frontend *(edition: Both)* — lead with our differentiators
-This is where we win. No DB, no accounts, no new deps. **Order matters: ship the power-user
-player and a beautiful frontend first** (the moat), then the Netflix-style discovery layer.
+### Phase 1 — The player & frontend *(edition: Both)* — ✅ SHIPPED (metadata deferred)
+This is where we win. No DB, no accounts, no new deps. We shipped the power-user player and a
+beautiful frontend first (the moat), then the discovery layer and the signature watch-party
+delight — all vanilla/stdlib, no outbound calls.
 
-**1.1 — VLC-grade player (the moat — do this first):**
-- **Tier 0 (backend already done):** audio-track picker UI; subtitle styling + **sync offset**.
-- audio **sync offset** (±ms); video filters (rotate/flip/aspect/zoom, brightness/contrast/
-  saturation via CSS); **Web Audio EQ + volume boost >100%** + normalization; chapters;
-  frame-step (`,`/`.`); A-B loop; screenshot; free-typed speed.
-- per-file / per-show **memory** of chosen audio, subtitle, speed, and sync.
+**1.1 — VLC-grade player (the moat):**
+- ✅ **Tier 0:** audio-track picker UI; subtitle styling + **sync offset**.
+- ✅ audio **delay** (Web Audio `DelayNode`); video filters (rotate/flip/aspect/zoom,
+  brightness/contrast/saturation via CSS); **Web Audio 5-band EQ + presets + volume boost to
+  300%** + normalization (compressor) + mono downmix; chapters; frame-step (`,`/`.` while
+  paused); A-B loop (`B`); screenshot (`I`); free-typed speed.
+- ✅ per-file **memory** of chosen audio, subtitle, speed, and sync (localStorage, every mode).
 
 **1.2 — A genuinely good frontend (see "Frontend & design bar" below):**
-- redesign the player overlay so all the new controls are discoverable but never cluttered
-  (grouped menus, a "more" tray, full keyboard map, command palette).
-- storyboard **hover-scrubbing** on the seek bar (`STORYBOARD_DIR` at `src/server.py:66`, unused).
-- responsive/touch polish, **PWA install**, accessibility pass (landmarks, focus, captions).
+- ✅ a player **"Tune" sheet** (`T`) groups the new controls (video / audio / tools) so they're
+  discoverable but never cluttered; full keyboard map (updated) + a **command palette** (`Ctrl/⌘+K`).
+- ✅ storyboard **hover-scrubbing** on the seek bar, plus storyboard **preview-on-hover** on cards.
+- ✅ responsive/touch polish, **PWA install** (manifest + offline-shell service worker),
+  accessibility (landmarks, `:focus-visible`, reduced-motion, captions).
 
 **1.3 — Netflix-grade discovery:**
-- metadata enrichment (TMDB/.nfo — first opt-in outbound call), show/season parsing.
-- real home page (hero + rows incl. Recently Added, "Because you watched"), up-next +
-  skip-intro (from chapters), preview-on-hover.
+- ⏳ metadata enrichment (TMDB/.nfo — the first opt-in outbound call) — **deferred** by decision
+  (§6.3); the app still never phones home.
+- ✅ real home page (hero + **Recently added** rail, built from the local index + resume
+  history; Continue + My List rows), **skip-intro** (from chapters), **preview-on-hover**.
 
 **1.4 — Signature delight (cheap "wow" neither competitor nails):**
-- **watch party / synced playback** (LAN/self-host via a server-coordinated play state) — make
-  it one click and free. Cross-internet watch-party + share-a-link land with P2P in Phase 4b.
+- ✅ **watch party / synced playback** — one click, free; a room code + Server-Sent-Events
+  broker play/pause/seek/episode-change across everyone on the LAN (the cloud/server brokers
+  state only, never the video). Cross-internet watch-party + share-a-link land with P2P in 4b.
 
 ### Phase 2 — Accounts & multi-user foundation *(edition: Both; required for Cloud)* — ✅ SHIPPED
 - ✅ Introduced **SQLite** (`sqlite3`, stdlib) as the accounts/state store, with a one-time

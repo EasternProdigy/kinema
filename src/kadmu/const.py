@@ -195,9 +195,10 @@ LOGIN_LOCK: dict[str, dict] = {}
 LOGIN_LOCK_GUARD = threading.Lock()
 LOGIN_MAX_FAILS = 5
 
-# Routes reachable WITHOUT authentication (so the login screen can load).
+# Routes reachable WITHOUT authentication (so the login screen + PWA shell can load).
 PUBLIC_ROUTES = {
     "/", "/index.html", "/qr.js", "/style.css", "/favicon.svg",
+    "/manifest.webmanifest", "/sw.js",
     "/api/session", "/api/login", "/api/register",
 }
 

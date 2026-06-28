@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Kadmu</title>
   <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#161210" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Kadmu" />
+  <link rel="apple-touch-icon" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -97,9 +102,18 @@
 
   <!-- ===== Main library view ===== -->
   <main id="library" class="library">
+    <!-- Home hero (root view only) — built by home.js -->
+    <section id="homeHero" class="home-hero hidden" aria-label="Featured"></section>
+
     <section id="continueSection" class="row-section hidden">
       <h2 class="row-title">Continue watching</h2>
       <div class="grid continue-grid" id="continueGrid"></div>
+    </section>
+
+    <!-- Recently added rail (root view only) — built by home.js -->
+    <section id="recentSection" class="row-section rail-section hidden">
+      <h2 class="row-title">Recently added</h2>
+      <div class="row-rail" id="recentRail"></div>
     </section>
 
     <section id="mylistSection" class="row-section hidden">
@@ -199,6 +213,11 @@
                 <button data-rate="1.25">1.25×</button>
                 <button data-rate="1.5">1.5×</button>
                 <button data-rate="2">2×</button>
+                <div class="speed-custom">
+                  <label for="speedCustom">Custom</label>
+                  <input type="number" id="speedCustom" min="0.1" max="4" step="0.05" inputmode="decimal" aria-label="Custom playback speed" />
+                  <span>×</span>
+                </div>
               </div>
             </div>
             <div class="menu-wrap hidden" id="qualityWrap">
@@ -217,6 +236,8 @@
               <button class="ctrl" id="chaptersBtn" data-icon="chapters" title="Chapters"></button>
               <div class="menu hidden" id="chaptersMenu"></div>
             </div>
+            <button class="ctrl" id="tuneBtn" data-icon="tune" title="Tune — video & audio (T)"></button>
+            <button class="ctrl" id="partyBtn" data-icon="party" title="Watch party"></button>
             <button class="ctrl" id="loopBtn" data-icon="loop" title="Loop (L)"></button>
             <button class="ctrl" id="autoNext" data-icon="autoplay" title="Autoplay next episode"></button>
             <div class="menu-wrap" id="sleepWrap">
@@ -247,10 +268,19 @@
         <div class="next-bar"><i id="nextBarFill"></i></div>
       </div>
 
+      <!-- Skip-intro (appears during an intro/recap chapter) -->
+      <button class="skip-intro hidden" id="skipIntro">Skip intro <span data-icon="next" aria-hidden="true"></span></button>
+
       <div class="pip-hint hidden" id="pipHint"></div>
 
       <!-- floating handle to reopen the panel when collapsed -->
       <button class="queue-open hidden" id="queueOpen" data-icon="list" title="Show episodes &amp; seasons"></button>
+
+      <!-- Tune sheet (video adjustments, audio EQ/boost, tools) — built by tune.js -->
+      <aside class="tune-sheet hidden" id="tuneSheet" aria-label="Tune"></aside>
+
+      <!-- Watch-party panel — built by party.js -->
+      <aside class="party-panel hidden" id="partyPanel" aria-label="Watch party"></aside>
     </div>
 
     <!-- Episodes / seasons rail -->
@@ -414,6 +444,17 @@
 
   <div id="toast" class="toast hidden"></div>
 
+  <!-- ===== Command palette (Ctrl/⌘ + K) ===== -->
+  <div id="paletteOverlay" class="palette-overlay hidden">
+    <div class="palette" role="dialog" aria-label="Command palette">
+      <div class="palette-input-wrap">
+        <span class="palette-ic" data-icon="command" aria-hidden="true"></span>
+        <input type="text" id="paletteInput" placeholder="Search commands & your library…" autocomplete="off" spellcheck="false" aria-label="Command palette" />
+      </div>
+      <div class="palette-list" id="paletteList" role="listbox"></div>
+    </div>
+  </div>
+
   <!-- ===== Key-press HUD (quick center flash of the pressed shortcut) ===== -->
   <div id="keyHud" class="key-hud" aria-hidden="true"></div>
 
@@ -424,11 +465,17 @@
   <script src="/js/state.js"></script>
   <script src="/js/routing.js"></script>
   <script src="/js/library.js"></script>
+  <script src="/js/home.js"></script>
   <script src="/js/manage.js"></script>
   <script src="/js/settings.js"></script>
   <script src="/js/accounts.js"></script>
   <script src="/js/player.js"></script>
+  <script src="/js/audio.js"></script>
+  <script src="/js/filters.js"></script>
+  <script src="/js/tune.js"></script>
   <script src="/js/playerui.js"></script>
+  <script src="/js/party.js"></script>
+  <script src="/js/palette.js"></script>
   <script src="/js/keys.js"></script>
   <script src="/js/main.js"></script>
 </body>

@@ -59,6 +59,7 @@ function wire() {
   $("#loopBtn").onclick = () => { video.loop = !video.loop; $("#loopBtn").classList.toggle("on", video.loop); };
   $("#pipBtn").onclick = togglePip;
   $("#fsBtn").onclick = toggleFs;
+  $("#skipIntro")?.addEventListener("click", skipIntro);
   $("#autoNext").onclick = () => {
     state.autoNext = !state.autoNext;
     $("#autoNext").classList.toggle("on", state.autoNext);
@@ -86,6 +87,14 @@ function wire() {
   $("#audioBtn")?.addEventListener("click", () => $("#audioMenu")?.classList.toggle("hidden"));
   $("#chaptersBtn")?.addEventListener("click", () => $("#chaptersMenu")?.classList.toggle("hidden"));
   $("#sleepBtn")?.addEventListener("click", () => { buildSleepMenu(); $("#sleepMenu")?.classList.toggle("hidden"); });
+  $("#tuneBtn")?.addEventListener("click", toggleTune);
+  $("#partyBtn")?.addEventListener("click", toggleParty);
+  // free-typed playback speed (the custom box in the speed menu)
+  $("#speedCustom")?.addEventListener("change", (e) => setSpeedCustom(e.target.value));
+  $("#speedCustom")?.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { setSpeedCustom(e.target.value); e.target.blur(); }
+  });
 
   // top-bar avatar: the account menu in accounts mode, else the viewer-profile chooser
   $("#profileBtn")?.addEventListener("click", () => {
@@ -170,11 +179,14 @@ function wire() {
   video.addEventListener("play", () => {
     $("#playPause").innerHTML = ICON.pause;
     $("#playerOverlay").classList.remove("paused");
+    resumeAudio();                 // Web Audio contexts start suspended — wake on play
+    partyLocal("play");            // mirror to a watch-party room if hosting/joined
     showUi();
   });
   video.addEventListener("pause", () => {
     $("#playPause").innerHTML = ICON.play;
     $("#playerOverlay").classList.add("paused");
+    partyLocal("pause");           // mirror to a watch-party room if hosting/joined
     saveProgress(true); showUi();
   });
   video.addEventListener("volumechange", () => {
@@ -216,7 +228,7 @@ function wire() {
   });
   video.addEventListener("playing", hideSpinner);
   video.addEventListener("canplay", hideSpinner);
-  video.addEventListener("seeked", hideSpinner);
+  video.addEventListener("seeked", () => { hideSpinner(); partyLocal("seek"); });
   video.addEventListener("waiting", () => showSpinner("Loading…"));
   video.addEventListener("stalled", () => showSpinner("Loading…"));
   document.addEventListener("fullscreenchange", () => {
@@ -276,6 +288,23 @@ function wire() {
   });
   $("#loginToggle")?.addEventListener("click",
     () => setLoginMode(loginMode === "register" ? "login" : "register"));
+
+  // command palette (Ctrl/⌘+K)
+  const pInput = $("#paletteInput");
+  if (pInput) {
+    let pTimer = null;
+    pInput.addEventListener("input", () => {
+      clearTimeout(pTimer); const q = pInput.value; pTimer = setTimeout(() => onPaletteInput(q), 90);
+    });
+    pInput.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "ArrowDown") { e.preventDefault(); setPaletteActive(pstate.active + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setPaletteActive(pstate.active - 1); }
+      else if (e.key === "Enter") { e.preventDefault(); runPalette(); }
+      else if (e.key === "Escape") { e.preventDefault(); closePalette(); }
+    });
+  }
+  $("#paletteOverlay")?.addEventListener("click", (e) => { if (e.target.id === "paletteOverlay") closePalette(); });
 
   document.addEventListener("keydown", onKey);
   // Back / Forward (and pasting a #/… link into the bar) replay the route.
@@ -409,6 +438,13 @@ async function boot() {
   try { state.roots = ((await api("/api/library")).folders || []).map(f => ({ name: f.name, path: f.path })); }
   catch { state.roots = []; }
 
+  // Auto-join a watch party from a shared invite link (#party=CODE).
+  const pm = location.hash.match(/party=([A-Za-z0-9]{4})/i);
+  if (pm) {
+    try { history.replaceState(history.state, "", location.pathname + location.search); } catch {}
+    setTimeout(() => joinParty(pm[1]), 400);
+  }
+
   const r = parseHash();
   const routePath = pathForRoute(r);           // history.state (reload) or the resolved trail
   if (r.view === "watch" && routePath) {
@@ -437,5 +473,9 @@ async function boot() {
   initIconSize();
   initToolbar();
   wire();
+  // PWA: register the offline-shell service worker (best effort; HTTPS or localhost only).
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
   await boot();
 })();

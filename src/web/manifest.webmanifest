@@ -1,0 +1,14 @@
+{
+  "name": "Kadmu",
+  "short_name": "Kadmu",
+  "description": "Your personal cinema in a browser tab — watch your own video files with thumbnails, resume, and a VLC-grade player.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#161210",
+  "theme_color": "#161210",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -6,6 +6,30 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A VLC-grade "Tune" sheet in the player (`T`).** One tidy tray gathers the new power-user
+  controls so the bar stays clean: **video** — brightness / contrast / saturation, rotate,
+  flip, zoom and a Fit/Crop/Stretch aspect mode (all non-destructive CSS); **audio** — a
+  5-band **equalizer** with presets, **volume boost up to 300%**, **normalize** (level loud &
+  quiet parts), **mono** downmix and an **audio delay** for lip-sync; **tools** — frame-step,
+  **A-B loop**, and **screenshot**. Audio runs through the Web Audio API and degrades to a
+  no-op where it isn't available.
+- **More player power:** frame-step (`,`/`.` while paused), **A-B loop** (`B`), **screenshot**
+  (`I`, saves the current frame as a PNG), and a **free-typed playback speed** box (0.1–4×).
+- **Per-file memory.** Kadmu remembers the audio track, subtitle, speed and subtitle-sync you
+  chose for each clip and restores them next time — in every mode.
+- **Command palette (`Ctrl`/`⌘`+`K`).** One box to run any action or jump to anything in your
+  library, with fuzzy matching and live search results folded in.
+- **A real home page.** The library root now opens on a hero (resume what you were watching, or
+  the freshest addition) over a **Recently added** rail, alongside Continue watching and My
+  List. Built entirely from local data — no metadata service, no outbound calls.
+- **Skip intro & hover previews.** A **Skip intro** button appears during an intro/recap
+  chapter; hovering a video card plays a quick **storyboard preview**.
+- **Install Kadmu as an app (PWA).** A web manifest + an offline app-shell service worker let
+  you install Kadmu to your dock/home screen and launch it in its own window.
+- **Watch party / synced playback (LAN).** Start a room, share the 4-character code (or invite
+  link), and everyone stays in lockstep — play, pause, seek and episode changes mirror to the
+  whole room over Server-Sent Events. One click, free, and the server brokers only the play
+  *state* — never the video.
 - **Multi-user accounts (opt-in, `--accounts`).** Real sign-in for households and shared
   boxes, backed by an embedded **SQLite** database (`sqlite3`, still standard-library only —
   no `pip`). Each person gets their **own** resume points, My List, playlists and display

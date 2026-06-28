@@ -79,6 +79,7 @@ function loadVideoElement(v) {
   // Fire play() synchronously so the click that opened the player still counts as the
   // user gesture browsers require for autoplay (the metadata callback is too late).
   startPlayback();
+  partyLocal("load");              // tell a watch-party room we changed clips
 }
 
 // Start playback; if the browser blocks autoplay, surface the center play button.
@@ -582,6 +583,7 @@ function updateTime() {
   paintRange(s);
   if ((state.chapters || []).length) highlightChapter();
   checkAbLoop();
+  checkSkipIntro();
 }
 function setSpeed(rate) {
   state.rate = rate;
@@ -595,7 +597,7 @@ function setSpeed(rate) {
 // Apply state.rate to the element and reflect it on the speed button (used on
 // every (re)load so a remembered/sticky speed survives source swaps and seeks).
 function applyRate() {
-  applyRate();
+  video.playbackRate = state.rate;
   const b = $("#speedBtn"); if (b) b.textContent = state.rate + "×";
 }
 
@@ -1026,6 +1028,39 @@ function skipChapter(dir) {
     target = (cur && pos - cur.start > 3) ? cur : (idx > 0 ? ch[idx - 1] : ch[0]);
   }
   if (target) { seekTo(target.start); toast(target.title || "Chapter", ""); }
+}
+
+/* ---------- skip intro (derived from chapters) ----------
+   Surfaces a "Skip intro" button while you're inside an intro/recap/opening
+   chapter — either one whose title says so, or a short first chapter when the
+   file is chaptered. Clicking it jumps to where that chapter ends. */
+const INTRO_RE = /intro|opening|recap|titles|preview|theme|\bop\b/i;
+function currentIntroEnd() {
+  const ch = state.chapters || [];
+  if (ch.length < 2) return null;
+  const pos = currentPlayPos();
+  for (let i = 0; i < ch.length; i++) {
+    const c = ch[i];
+    const end = (i + 1 < ch.length) ? ch[i + 1].start : (c.end || null);
+    if (end == null) continue;
+    if (pos >= c.start - 0.01 && pos < end - 0.3) {
+      if (INTRO_RE.test(c.title || "") || (i === 0 && end <= 300)) return end;
+      return null;
+    }
+  }
+  return null;
+}
+function checkSkipIntro() {
+  const btn = $("#skipIntro");
+  if (!btn) return;
+  const end = currentVideo ? currentIntroEnd() : null;
+  if (end != null) { btn.dataset.to = String(end); btn.classList.remove("hidden"); }
+  else btn.classList.add("hidden");
+}
+function skipIntro() {
+  const btn = $("#skipIntro");
+  const to = btn ? +btn.dataset.to : 0;
+  if (to) { seekTo(to); btn.classList.add("hidden"); }
 }
 
 /* ---------- storyboard scrub previews (sprite sheet) ---------- */

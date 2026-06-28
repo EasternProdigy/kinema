@@ -94,8 +94,9 @@ concern into modules whose dependencies point downward (no import cycles):
 | `media` | ffmpeg: `probe_meta`, thumbnails, covers, subtitles→VTT, storyboards, the demo generator, cache pruning |
 | `store` | library config/roots, resume progress, My List, viewer profiles, `resolve_within_roots`/`owning_root` |
 | `security` | Host/CSRF/auth, the legacy shared-password sessions + login throttle, password hashing, the LAN toggle |
-| `library` | directory listing, the folder browser, search + background index, file ops (rename/move/delete-to-trash) |
-| `handler` | the one `BaseHTTPRequestHandler` subclass and its route chains |
+| `library` | directory listing, the folder browser, search + background index, the **home feed** (hero + recently-added), file ops (rename/move/delete-to-trash) |
+| `party` | in-memory **watch-party** rooms — the SSE subscriber registry + broadcast fan-out of play/pause/seek/load state (stdlib only; rooms evaporate when empty) |
+| `handler` | the one `BaseHTTPRequestHandler` subclass and its route chains (incl. the watch-party SSE stream loop) |
 | `app` | the threaded server, the cache/trash/session janitor, browser launch, and `main()` |
 
 > **The two load-bearing rules when editing across modules:** (1) the mutable runtime flags live
@@ -176,16 +177,22 @@ above.
 
 ### Frontend — [src/web/](src/web/) (no build step, no bundler)
 
-- [src/web/index.html](src/web/index.html) — the entire DOM up front (library view, player
-  overlay, settings modal, generic dialog, login overlay), toggled via `.hidden`. Single-page app.
+- [src/web/index.html](src/web/index.html) — the entire DOM up front (home hero, library view,
+  player overlay + the **Tune** sheet and **watch-party** panel, settings modal, command
+  palette, generic dialog, login overlay), toggled via `.hidden`. Single-page app. Also links
+  the PWA manifest.
 - [src/web/js/](src/web/js/) — vanilla JS, **one `state` object, no framework, no modules**. The
   old `app.js` was split into **ordered classic `<script>` files** that share the global scope;
   `index.html` loads them in a fixed order and `main.js` boots last:
-  `util → icons → state → routing → library → manage → settings → accounts → player → playerui →
-  keys → main`. Because they're classic scripts, top-level `const`/`function` in one file are
-  visible to the others, so cross-file calls work unchanged — **the only constraints are load
-  order (`util.js` defines `$` first; `main.js`'s init IIFE runs last) and declaring each name
-  once.** If you add a file, add a `<script>` tag in the right spot. All server calls go through
+  `util → icons → state → routing → library → home → manage → settings → accounts → player →
+  audio → filters → tune → playerui → party → palette → keys → main`. (`audio`/`filters` =
+  the Web-Audio graph + CSS video adjustments; `tune` = the player Tune sheet that drives them;
+  `party` = watch-party SSE client; `palette` = the `Ctrl/⌘+K` command palette; `home` = the
+  hero + recently-added rail + storyboard hover-preview.) Because they're classic scripts,
+  top-level `const`/`function` in one file are visible to the others, so cross-file calls work
+  unchanged — **the only constraints are load order (`util.js` defines `$` first; `main.js`'s
+  init IIFE runs last) and declaring each name once.** If you add a file, add a `<script>` tag
+  in the right spot. All server calls go through
   the `api()` helper (`util.js`; injects the `X-Kadmu` CSRF header; on 401 `needAuth` it pops the
   login overlay). The UI is gated by `/api/session` flags (`canManage`, `canBrowse`, `readonly`,
   `accounts`, `role`, …) from `_session_state()` — the backend is the authority on capabilities.
@@ -196,17 +203,22 @@ above.
 ### API surface (all under `/api/`)
 
 GET: `session`, `config`, `library?path=`, `browse?path=`, `meta?path=` (also returns the
-file's `audios`/`subs` track lists), `thumb?path=`, `stream?path=` (Range + remux; optional
+file's `audios`/`subs`/`chapters`), `thumb?path=`, `stream?path=` (Range + remux; optional
 `audio=` ordinal selects an audio track), `transcode?path=&height=` (optional `audio=`),
-`progress`, `continue`, `search?q=` (served from the background index — see below),
-`subs?path=` (sidecar + embedded subtitle tracks), `sub?path=` (sidecar VTT, or `&track=N`
-to extract an embedded text track), `mylist`, `playlists`, `trash` (item count + bytes).
-POST: `login`, `logout`, `progress`, `progress/clear`, `mylist`, `lan`, `password`, `config`,
-`playlists`, `pick-folder` (native OS dialog on the server desktop), `add-paths`
-(drag-and-drop), `op` (rename/move/mkdir/delete/empty-trash). New routes since: `register`,
-`account`, `users` (admin), `prefs` (accounts mode). Static files (`/`, `/style.css`,
-`/qr.js`, `/favicon.svg`) are served by `_serve_static`; the split frontend scripts via the
-`/js/*.js` route and fonts via `/fonts/*.woff2`. The app shell also carries the strict `CSP`.
+`progress`, `continue`, `home` (hero + recently-added rail, all local data), `search?q=`
+(served from the background index — see below), `storyboard?path=` / `storyboard.jpg?path=`
+(scrub + hover previews), `subs?path=` (sidecar + embedded subtitle tracks), `sub?path=`
+(sidecar VTT, or `&track=N` to extract an embedded text track), `mylist`, `playlists`,
+`trash` (item count + bytes), `party/state?code=` and `party/events?code=` (watch-party
+**SSE** stream). POST: `login`, `logout`, `progress`, `progress/clear`, `mylist`,
+`party/create` · `party/join` · `party/update` (synced playback; allowed even read-only —
+not a library write), `lan`, `password`, `config`, `playlists`, `pick-folder` (native OS
+dialog on the server desktop), `add-paths` (drag-and-drop), `op`
+(rename/move/mkdir/delete/empty-trash), plus `register`, `account`, `users` (admin), `prefs`
+(accounts mode). Static files (`/`, `/style.css`, `/qr.js`, `/favicon.svg`,
+`/manifest.webmanifest`, `/sw.js` — the PWA shell) are served by `_serve_static`; the split
+frontend scripts via the `/js/*.js` route and fonts via `/fonts/*.woff2`. The app shell also
+carries the strict `CSP`.
 
 **Background library index.** A daemon thread (`start_indexer` → `_indexer_loop`) walks every
 root and builds an in-memory catalog of folders + video files; `search_library` ranks against
@@ -220,6 +232,13 @@ janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
 
 ## Conventions & constraints
 
+- **Never do anything that could crash or hang the user's computer.** Don't spawn unbounded or
+  runaway work — no fork bombs, no fork/spawn loops, no `while True` that launches processes, no
+  spawning many ffmpeg/transcode jobs at once, no fillers that exhaust RAM/CPU/disk, no commands
+  that can wedge the machine. Keep concurrency capped (the existing `Semaphore`s / stream caps),
+  prefer small bounded test runs, always set timeouts on subprocesses, and clean up every
+  background process/server you start. When in doubt about resource cost, do the cheap thing or
+  ask first.
 - **Backend: Python standard library only.** No third-party runtime dependencies, ever.
 - **Frontend: vanilla HTML/CSS/JS.** No framework, no bundler, no transpile.
 - **Brand is the source of truth for anything visual.** Colors, gradient, fonts, radii,

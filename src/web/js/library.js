@@ -29,8 +29,13 @@ async function loadLibrary(path, opts = {}) {
   renderBreadcrumb(data);
   renderFolders(data);
   renderVideos(data);
-  if (data.isRoot) { await renderContinue(); await renderMyList(); }
-  else { $("#continueSection").classList.add("hidden"); $("#mylistSection")?.classList.add("hidden"); }
+  if (data.isRoot) { await renderHome(); await renderContinue(); await renderMyList(); }
+  else {
+    $("#homeHero")?.classList.add("hidden");
+    $("#recentSection")?.classList.add("hidden");
+    $("#continueSection").classList.add("hidden");
+    $("#mylistSection")?.classList.add("hidden");
+  }
   renderEmpty(data);
   updateToolbar(data);
   window.scrollTo(0, 0);
@@ -450,6 +455,7 @@ function videoCard(v, opts = {}) {
   card.oncontextmenu = (ev) => openContextMenu(ev, { card, path: v.path, name: v.name, isFolder: false, item: v });
   if (state.selection.has(v.path)) card.classList.add("selected");
   thumbObserver.observe(card);
+  attachHoverPreview(card, v);                     // storyboard preview-on-hover
   return card;
 }
 

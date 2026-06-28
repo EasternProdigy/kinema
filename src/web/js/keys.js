@@ -16,6 +16,7 @@ const KEYBINDS = [
     { keys: ["Home", "End"], desc: "Jump to start / near the end" },
     { keys: ["[", "]"], desc: "Slower / faster playback" },
     { keys: ["L"], desc: "Loop this video" },
+    { keys: ["B"], desc: "A-B loop (set A, then B, then clear)" },
   ]},
   { group: "Volume", items: [
     { keys: ["↑", "↓"], desc: "Volume up / down" },
@@ -25,9 +26,10 @@ const KEYBINDS = [
     { keys: ["A"], desc: "Cycle audio track" },
     { keys: ["C"], desc: "Cycle subtitles / captions" },
     { keys: ["G", "H"], desc: "Subtitle sync earlier / later" },
+    { keys: ["T"], desc: "Tune — video filters & audio EQ/boost" },
   ]},
-  { group: "Chapters", items: [
-    { keys: [",", "."], desc: "Previous / next chapter" },
+  { group: "Chapters & frames", items: [
+    { keys: [",", "."], desc: "Previous / next chapter (frame-step when paused)" },
   ]},
   { group: "Episodes & player", items: [
     { keys: ["Shift", "N"], desc: "Next episode" },
@@ -35,10 +37,12 @@ const KEYBINDS = [
     { keys: ["E"], desc: "Toggle the episodes panel" },
     { keys: ["F"], desc: "Fullscreen" },
     { keys: ["P"], desc: "Picture-in-Picture" },
+    { keys: ["I"], desc: "Save the current frame (screenshot)" },
     { keys: ["S"], desc: "Sleep timer (after this episode)" },
     { keys: ["Esc"], desc: "Close the player" },
   ]},
   { group: "Library & general", items: [
+    { keys: ["Ctrl/⌘", "K"], desc: "Command palette" },
     { keys: ["/"], desc: "Jump to search" },
     { keys: ["?"], desc: "Show this shortcuts list" },
     { keys: ["Esc"], desc: "Close menus / clear selection" },
@@ -76,7 +80,7 @@ const KEY_SYMBOLS = { " ": "Space", "ArrowLeft": "←", "ArrowRight": "→", "Ar
                       "ArrowDown": "↓", "Escape": "Esc" };
 // e.key values we actually act on while the player is open (numbers handled separately).
 const PLAYER_KEYS = new Set([" ", "k", "ArrowLeft", "ArrowRight", "j", "l", "ArrowUp",
-  "ArrowDown", "m", "a", "c", "e", "f", "p", "s", "N", "P", "[", "]", ".", ",", "Home", "End"]);
+  "ArrowDown", "m", "a", "c", "e", "f", "p", "s", "t", "b", "i", "N", "P", "[", "]", ".", ",", "Home", "End"]);
 // Turn a keyboard event into display chips, e.g. ["Shift","→"] or ["Space"] or ["?"].
 function keyChips(e) {
   const chips = [];
@@ -104,18 +108,25 @@ function flashKey(chips) {
 }
 
 function onKey(e) {
+  // Command palette: Ctrl/⌘+K from anywhere (even while a field is focused).
+  if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+    e.preventDefault(); togglePalette(); return;
+  }
   if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
     if (e.key === "Escape") { closeDialog(); closeSettings(); }
     return;
   }
   const playerOpen = !$("#playerOverlay").classList.contains("hidden");
   if (e.key === "Escape") {
+    if (!$("#paletteOverlay")?.classList.contains("hidden")) return closePalette();
     if (!$("#shortcutsModal").classList.contains("hidden")) return closeShortcuts();
     if (!$("#ctxMenu").classList.contains("hidden")) return closeContextMenu();
     if (!$("#userMenu")?.classList.contains("hidden")) return hideUserMenu();
     if (!$("#dialog").classList.contains("hidden")) return closeDialog();
     if (!$("#settingsModal").classList.contains("hidden")) return closeSettings();
     if (state.profilesEnabled && !$("#profileOverlay").classList.contains("hidden")) return hideProfileChooser();
+    if (playerOpen && !$("#tuneSheet")?.classList.contains("hidden")) return closeTune();
+    if (playerOpen && !$("#partyPanel")?.classList.contains("hidden")) return closeParty();
     if (playerOpen && !$("#nextCard").classList.contains("hidden")) return hideNextCard();
     if (playerOpen) return closePlayer();
     if (state.selection.size) return clearSelection();
@@ -152,8 +163,12 @@ function onKey(e) {
     case "P": playIndex(state.qIndex - 1); break;
     case "[": setSpeed(Math.max(0.25, +(video.playbackRate - 0.25).toFixed(2))); break;
     case "]": setSpeed(Math.min(3, +(video.playbackRate + 0.25).toFixed(2))); break;
-    case ".": skipChapter(1); break;                                        // next chapter
-    case ",": skipChapter(-1); break;                                       // previous chapter
+    // paused: nudge a single frame (YouTube-style); playing: jump chapters
+    case ".": video.paused ? frameStep(1) : skipChapter(1); break;
+    case ",": video.paused ? frameStep(-1) : skipChapter(-1); break;
+    case "t": toggleTune(); break;                                          // tune sheet
+    case "b": cycleAbLoop(); break;                                         // A-B loop
+    case "i": screenshot(); break;                                          // save a frame
     case "Home": seekTo(0); break;
     case "End": { const t = totalDuration(); if (t) seekTo(t - 5); break; }
     default:

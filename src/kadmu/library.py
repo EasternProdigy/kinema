@@ -407,6 +407,33 @@ def continue_watching():
 
 
 # --------------------------------------------------------------------------- #
+# Home feed — a hero pick + "recently added" rail, all from LOCAL data (the
+# background index + resume history). No metadata service, no outbound calls.
+# --------------------------------------------------------------------------- #
+def home_feed():
+    """Build the root-view home surface: the newest videos across every root, and
+    a hero (resume what you were watching, else the freshest addition)."""
+    snap = _index_snapshot()
+    meta_all = _meta_snapshot()
+    recent = []
+    if snap is not None:
+        newest = sorted(snap.get("videos", []), key=lambda v: v.get("mtime", 0), reverse=True)[:24]
+        for v in newest:
+            recent.append({
+                "name": v["name"], "display": v["display"], "path": v["path"], "ext": v["ext"],
+                "size": v["size"], "mtime": v["mtime"], "playable": True, "direct": v["direct"],
+                "duration": (meta_all.get(v["mkey"]) or {}).get("duration"),
+            })
+    cont = continue_watching()
+    hero = None
+    if cont:
+        hero = dict(cont[0]); hero["reason"] = "resume"
+    elif recent:
+        hero = dict(recent[0]); hero["reason"] = "new"; hero["position"] = 0
+    return {"hero": hero, "recent": recent}
+
+
+# --------------------------------------------------------------------------- #
 # Search (Netflix-style: type anywhere, find shows & episodes across all roots)
 # --------------------------------------------------------------------------- #
 def _search_rank(title: str, hay: str, q_full: str, terms):

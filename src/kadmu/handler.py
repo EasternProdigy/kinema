@@ -3,6 +3,7 @@ gate (_guard / _authed / _resolve_user / _require_admin), and the do_GET/do_POST
 route chains. Pulls together every other module; nothing imports handler but app."""
 from __future__ import annotations
 import json
+import queue
 import re
 import subprocess
 import time
@@ -39,9 +40,12 @@ from .media import (
     storyboard_image, subtitle_tracks,
 )
 from .library import (
-    _picker_tool, _uri_to_path, browse_dir, continue_watching, list_directory,
-    list_roots, native_pick_folder, op_delete, op_mkdir, op_move, op_rename,
-    purge_trash, request_reindex, search_library, trash_info,
+    _picker_tool, _uri_to_path, browse_dir, continue_watching, home_feed,
+    list_directory, list_roots, native_pick_folder, op_delete, op_mkdir, op_move,
+    op_rename, purge_trash, request_reindex, search_library, trash_info,
+)
+from .party import (
+    create_room, member_count, room_snapshot, subscribe, unsubscribe, update_room,
 )
 
 # --------------------------------------------------------------------------- #
@@ -53,6 +57,8 @@ STATIC_FILES = {
     "/qr.js": ("qr.js", "application/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+    "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json; charset=utf-8"),
+    "/sw.js": ("sw.js", "application/javascript; charset=utf-8"),
 }
 
 CSP = ("default-src 'self'; img-src 'self' data:; media-src 'self'; "
@@ -421,6 +427,42 @@ class Handler(BaseHTTPRequestHandler):
         _REQ.profile = (_profile_slug(self.headers.get("X-Kadmu-Profile", ""))
                         if rt.PROFILES_ENABLED else "default")
 
+    # -- watch party (Server-Sent Events) ----------------------------------- #
+    def _sse(self, obj):
+        return ("data: " + json.dumps(obj) + "\n\n").encode("utf-8")
+
+    def _serve_party_events(self, code):
+        """Hold an SSE connection open and stream a watch-party room's play state.
+        Blocks this handler thread for the life of the connection (fine on the
+        threaded server); a heartbeat every 15s also detects a dropped client."""
+        q, _room = subscribe(code)
+        if q is None:
+            return self._send_json({"error": "No such room."}, 404)
+        self.close_connection = True              # open-ended stream: read until close
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            snap = room_snapshot(code)
+            if snap:
+                self.wfile.write(self._sse({"type": "load", **snap["state"],
+                                            "members": snap["members"]}))
+                self.wfile.flush()
+            while True:
+                try:
+                    ev = q.get(timeout=15)
+                except queue.Empty:
+                    ev = {"type": "ping", "members": member_count(code)}
+                self.wfile.write(self._sse(ev))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass                                  # client closed the tab / left the party
+        finally:
+            unsubscribe(code, q)
+
     # -- verbs -------------------------------------------------------------- #
     def do_HEAD(self):
         self.do_GET()
@@ -576,6 +618,18 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/api/continue":
             return self._send_json(continue_watching())
+
+        if route == "/api/home":
+            return self._send_json(home_feed())
+
+        if route == "/api/party/state":
+            snap = room_snapshot(qs.get("code", [""])[0])
+            if not snap:
+                return self._send_json({"error": "no room"}, 404)
+            return self._send_json(snap)
+
+        if route == "/api/party/events":
+            return self._serve_party_events(qs.get("code", [""])[0])
 
         if route == "/api/search":
             return self._send_json(search_library(unquote(qs.get("q", [""])[0])))
@@ -819,6 +873,27 @@ class Handler(BaseHTTPRequestHandler):
             if keys is None:
                 return self._send_json({"error": "outside library"}, 400)
             return self._send_json({"ok": True, "paths": keys})
+
+        # ---- watch party: synced playback state (not a library write) ---- #
+        if route == "/api/party/create":
+            code = create_room(path=body.get("path"))
+            if not code:
+                return self._send_json({"ok": False, "error": "Too many active parties right now."}, 503)
+            return self._send_json({"ok": True, "code": code})
+
+        if route == "/api/party/join":
+            snap = room_snapshot(str(body.get("code", "")))
+            if not snap:
+                return self._send_json({"ok": False, "error": "No watch party with that code."}, 404)
+            return self._send_json({"ok": True, "snapshot": snap})
+
+        if route == "/api/party/update":
+            patch = {k: body.get(k) for k in ("path", "position", "paused", "rate") if k in body}
+            kind = "load" if body.get("kind") == "load" else "control"
+            n = update_room(str(body.get("code", "")), patch, kind=kind)
+            if n is None:
+                return self._send_json({"ok": False, "error": "No such room."}, 404)
+            return self._send_json({"ok": True, "members": n})
 
         if route == "/api/lan":
             # network-sharing toggle: a server setting, not a library write, but we
