@@ -48,6 +48,8 @@ const state = {
   sleep: { mode: "off", deadline: 0, episodes: 0, timer: null, tick: null }, // sleep timer
   profilesEnabled: false, // server has --profiles on
   keyHud: true,           // flash the pressed shortcut in the center of the screen
+  browseFiles: false,     // root view: false = Shows/Movies catalog, true = classic folder browser
+  catalogHasItems: false, // the catalog returned at least one show or movie (drives the home layout)
 };
 
 /* ===================== thumbnails (lazy) ===================== */

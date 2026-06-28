@@ -367,7 +367,9 @@ function applyView(view) {
 function updateToolbar(data) {
   const bar = $("#libToolbar");
   if (!bar) return;
-  const hasItems = !!((data.folders || []).length || (data.videos || []).length);
+  // The catalog home (Shows/Movies grids) has its own layout — no sort/filter bar there.
+  const catalogHome = data.isRoot && !state.browseFiles && state.catalogHasItems;
+  const hasItems = !catalogHome && !!((data.folders || []).length || (data.videos || []).length);
   bar.classList.toggle("hidden", !hasItems);
   const sel = $("#sortSelect"); if (sel) sel.value = state.sort;
   $$("#filterChips .chip").forEach(c => c.classList.toggle("active", c.dataset.filter === state.filter));
@@ -466,6 +468,9 @@ async function boot() {
   } else if (r.view === "browse" && routePath) {
     navMode = "replace";                       // tag this entry without stacking a duplicate
     await loadLibrary(routePath, { silent: true });
+  } else if (r.view === "title" && routePath) {
+    navMode = "replace";                       // deep link / reload straight onto a show or movie
+    await openTitle(routePath, { silent: true });
   } else {
     let last = null;
     try { last = localStorage.getItem("kadmu_last_path"); } catch {}

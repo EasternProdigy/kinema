@@ -141,6 +141,20 @@
       <div class="grid folder-grid" id="mylistGrid"></div>
     </section>
 
+    <!-- Shows / Movies catalog (root view) + folder-browser toggle — built by catalog.js -->
+    <div id="homeBar" class="home-bar hidden"></div>
+    <section id="showsSection" class="row-section hidden">
+      <h2 class="row-title">Shows</h2>
+      <div class="grid title-grid" id="showsGrid"></div>
+    </section>
+    <section id="moviesSection" class="row-section hidden">
+      <h2 class="row-title">Movies</h2>
+      <div class="grid title-grid" id="moviesGrid"></div>
+    </section>
+
+    <!-- Per-title detail page (a show's seasons/episodes, or a movie) — built by catalog.js -->
+    <section id="titleView" class="title-view hidden" aria-label="Title detail"></section>
+
     <div id="libToolbar" class="lib-toolbar hidden">
       <select id="sortSelect" class="lib-select" aria-label="Sort by">
         <option value="name">Name</option>
@@ -489,6 +503,7 @@
   <script src="/js/routing.js"></script>
   <script src="/js/library.js"></script>
   <script src="/js/home.js"></script>
+  <script src="/js/catalog.js"></script>
   <script src="/js/manage.js"></script>
   <script src="/js/settings.js"></script>
   <script src="/js/accounts.js"></script>

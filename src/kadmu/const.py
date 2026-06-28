@@ -128,6 +128,7 @@ CONFIG_PATH = DATA_DIR / "config.json"
 PROGRESS_PATH = DATA_DIR / "progress.json"
 PLAYLISTS_PATH = DATA_DIR / "playlists.json"
 MYLIST_PATH = DATA_DIR / "mylist.json"
+RATINGS_PATH = DATA_DIR / "ratings.json"     # per-show / per-movie thumbs-up/down
 META_CACHE_PATH = DATA_DIR / "meta_cache.json"
 PROFILES_PATH = DATA_DIR / "profiles.json"   # opt-in per-viewer id -> {"name"}
 DB_PATH = DATA_DIR / "kadmu.db"              # accounts mode (--accounts): users + per-user state

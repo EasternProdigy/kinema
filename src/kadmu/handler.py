@@ -30,8 +30,9 @@ from .accounts import (
 from .store import (
     _profile_slug, clear_progress, create_profile, get_config, list_profiles,
     load_progress, my_list_items, my_list_set, owning_root, resolve_within_roots,
-    set_config, set_progress,
+    set_config, set_progress, set_rating,
 )
+from .catalog import build_catalog, title_detail
 from .security import (
     host_allowed, is_loopback, login_check, login_fail, login_ok, new_session,
     parse_cookies, password_required, session_valid, set_lan_mode, set_password,
@@ -829,6 +830,18 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/home":
             return self._send_json(home_feed())
 
+        if route == "/api/catalog":
+            return self._send_json(build_catalog())
+
+        if route == "/api/title":
+            raw = qs.get("id", [None])[0] or qs.get("path", [None])[0]
+            if not raw:
+                return self._send_json({"error": "missing id"}, 400)
+            detail = title_detail(unquote(raw))
+            if detail is None:
+                return self._send_json({"error": "not found"}, 404)
+            return self._send_json(detail)
+
         if route == "/api/party/state":
             snap = room_snapshot(qs.get("code", [""])[0])
             if not snap:
@@ -1077,6 +1090,18 @@ class Handler(BaseHTTPRequestHandler):
             if keys is None:
                 return self._send_json({"error": "outside library"}, 400)
             return self._send_json({"ok": True, "paths": keys})
+
+        if route == "/api/rating":
+            # personal thumbs-up/down on a show or movie — like progress/My List,
+            # allowed even in read-only (it's per-viewer data, not a library write).
+            p = resolve_within_roots(body.get("id") or body.get("path"), must_exist=True)
+            if not p:
+                return self._send_json({"error": "outside library"}, 400)
+            try:
+                val = int(body.get("value", 0))
+            except (TypeError, ValueError):
+                return self._send_json({"error": "bad value"}, 400)
+            return self._send_json({"ok": True, "value": set_rating(str(p), val)})
 
         # ---- watch party: synced playback state (not a library write) ---- #
         if route == "/api/party/create":

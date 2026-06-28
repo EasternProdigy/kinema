@@ -64,6 +64,13 @@ CREATE TABLE IF NOT EXISTS mylist (
   added   REAL NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, path)
 );
+CREATE TABLE IF NOT EXISTS ratings (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  path    TEXT NOT NULL,
+  rating  INTEGER NOT NULL DEFAULT 0,
+  updated REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, path)
+);
 CREATE TABLE IF NOT EXISTS playlists (
   user_id INTEGER NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   data    TEXT NOT NULL DEFAULT '{}'
@@ -353,6 +360,26 @@ def db_mylist_set(uid, path, name, on):
             _db().execute("SELECT path FROM mylist WHERE user_id=?", (uid,)).fetchall()]
 
 
+def db_ratings_all(uid):
+    rows = _db().execute("SELECT path, rating, updated FROM ratings WHERE user_id=?",
+                         (uid,)).fetchall()
+    return {r["path"]: {"rating": r["rating"], "updated": r["updated"]} for r in rows}
+
+
+def db_set_rating(uid, path, rating):
+    """Upsert (or, for a 0 rating, clear) one thumbs-up/down for a show or movie."""
+    conn = _db()
+    if int(rating) == 0:
+        conn.execute("DELETE FROM ratings WHERE user_id=? AND path=?", (uid, path))
+    else:
+        conn.execute(
+            "INSERT INTO ratings(user_id,path,rating,updated) VALUES(?,?,?,?) "
+            "ON CONFLICT(user_id,path) DO UPDATE SET "
+            "rating=excluded.rating, updated=excluded.updated",
+            (uid, path, int(rating), time.time()))
+    conn.commit()
+
+
 def db_playlists_get(uid):
     row = _db().execute("SELECT data FROM playlists WHERE user_id=?", (uid,)).fetchone()
     return _json_obj(row["data"]) if row else {}
@@ -386,7 +413,7 @@ def db_migrate_path(old: Path, new: Path):
     like = old_s + "/%"
     cut = len(old_s) + 1     # sqlite substr() is 1-indexed; +1 drops the old prefix
     conn = _db()
-    for tbl in ("progress", "mylist"):
+    for tbl in ("progress", "mylist", "ratings"):
         conn.execute(f"UPDATE OR IGNORE {tbl} SET path=? WHERE path=?", (new_s, old_s))
         conn.execute(f"UPDATE OR IGNORE {tbl} SET path=? || substr(path,?) WHERE path LIKE ?",
                      (new_s, cut, like))

@@ -54,12 +54,14 @@ function parseHash() {
   if (q >= 0) {                                   // legacy / fallback: browse?path=<abs>
     const seg = h.slice(0, q);
     const path = new URLSearchParams(h.slice(q + 1)).get("path");
-    if (seg === "watch" || seg === "browse") return { view: seg, path: path || null, trail: null };
+    if (seg === "watch" || seg === "browse" || seg === "title")
+      return { view: seg, path: path || null, trail: null };
     return { view: "root", path: null, trail: [] };
   }
   const parts = h.split("/").filter(Boolean).map(decodeURIComponent);
   const view = parts.shift();
-  if (view === "watch" || view === "browse") return { view, path: null, trail: parts };
+  if (view === "watch" || view === "browse" || view === "title")
+    return { view, path: null, trail: parts };
   return { view: "root", path: null, trail: [] };
 }
 // The path for a parsed route: prefer history.state (exact), else the explicit ?path=,
@@ -111,6 +113,9 @@ async function renderFromRoute() {
           if (!open || !currentVideo || currentVideo.path !== path) {
             await openPlayer(await resolveVideo(path));
           }
+        } else if (r.view === "title" && path) {
+          if (!$("#playerOverlay").classList.contains("hidden")) teardownPlayer();
+          await openTitle(path, { silent: true });
         } else {
           if (!$("#playerOverlay").classList.contains("hidden")) teardownPlayer();
           await loadLibrary(r.view === "browse" ? path : null, { silent: true });

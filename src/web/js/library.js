@@ -26,15 +26,39 @@ async function loadLibrary(path, opts = {}) {
   document.body.classList.remove("searching-mode");
   { const si = $("#searchInput"); if (si) si.value = ""; $("#searchBox")?.classList.remove("has-text"); closeSearchDD(); }   // leaving search → clear the box & dropdown
   clearSelection();
+  $("#titleView")?.classList.add("hidden");
   renderBreadcrumb(data);
   renderFolders(data);
   renderVideos(data);
-  if (data.isRoot) { await renderHome(); await renderContinue(); await renderMyList(); }
-  else {
+  if (data.isRoot) {
+    await renderContinue(); await renderMyList();
+    if (state.browseFiles) {
+      // classic folder browser at the root (reached via the "Browse files" toggle)
+      $("#homeHero")?.classList.add("hidden");
+      $("#recentSection")?.classList.add("hidden");
+      $("#showsSection")?.classList.add("hidden");
+      $("#moviesSection")?.classList.add("hidden");
+      renderHomeBar(true);
+    } else {
+      await renderHome();
+      const hasCatalog = await renderCatalog();   // Shows + Movies poster grids
+      if (hasCatalog) {
+        // the catalog supersedes the raw top-level folder/file lists
+        $("#folderSection")?.classList.add("hidden");
+        $("#videoSection")?.classList.add("hidden");
+        renderHomeBar(false);
+      } else {
+        $("#homeBar")?.classList.add("hidden");
+      }
+    }
+  } else {
     $("#homeHero")?.classList.add("hidden");
     $("#recentSection")?.classList.add("hidden");
     $("#continueSection").classList.add("hidden");
     $("#mylistSection")?.classList.add("hidden");
+    $("#showsSection")?.classList.add("hidden");
+    $("#moviesSection")?.classList.add("hidden");
+    $("#homeBar")?.classList.add("hidden");
   }
   renderEmpty(data);
   updateToolbar(data);
@@ -511,6 +535,11 @@ function refreshLibrary() {
 function renderEmpty(data) {
   const empty = $("#emptyState");
   empty.innerHTML = "";
+  // The Shows/Movies catalog stands in for the root grids — never show "empty" then.
+  if (data.isRoot && !state.browseFiles && state.catalogHasItems) {
+    empty.classList.add("hidden");
+    return;
+  }
   const nothing = !(data.folders || []).length && !(data.videos || []).length;
   if (data.isRoot && !(data.folders || []).length) {
     empty.classList.remove("hidden");

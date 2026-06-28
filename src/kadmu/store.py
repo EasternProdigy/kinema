@@ -10,10 +10,10 @@ from pathlib import Path
 from . import rt
 from .accounts import (
     _current_uid, db_progress_all, db_set_progress, db_clear_progress,
-    db_mylist_all, db_mylist_set, db_migrate_path,
+    db_mylist_all, db_mylist_set, db_ratings_all, db_set_rating, db_migrate_path,
 )
 from .const import (
-    CONFIG_PATH, PROGRESS_PATH, MYLIST_PATH, PROFILES_PATH, DATA_DIR,
+    CONFIG_PATH, PROGRESS_PATH, MYLIST_PATH, RATINGS_PATH, PROFILES_PATH, DATA_DIR,
     NATIVE_EXTS, _io_lock, _REQ, load_json, save_json,
 )
 
@@ -46,12 +46,22 @@ def mylist_path_for(pid):
     return DATA_DIR / "profiles" / _profile_slug(pid) / "mylist.json"
 
 
+def ratings_path_for(pid):
+    if not rt.PROFILES_ENABLED or pid == "default":
+        return RATINGS_PATH
+    return DATA_DIR / "profiles" / _profile_slug(pid) / "ratings.json"
+
+
 def _progress_path():
     return progress_path_for(current_profile())
 
 
 def _mylist_path():
     return mylist_path_for(current_profile())
+
+
+def _ratings_path():
+    return ratings_path_for(current_profile())
 
 
 def list_profiles():
@@ -279,6 +289,57 @@ def my_list_set(path: str, on: bool, name: str = ""):
             data.pop(str(p) if p else path, None)
         save_json(mp, data)
     return list(data.keys())
+
+
+# --------------------------------------------------------------------------- #
+# Ratings (Netflix-style thumbs-up / thumbs-down, keyed by show folder or movie
+# file path). Value is -1 (down), 0 (none), or +1 (up). Per-viewer, exactly like
+# My List: SQLite per-user in accounts mode, the shared/profile JSON otherwise.
+# --------------------------------------------------------------------------- #
+def _rating_int(rec):
+    """Coerce a stored rating record to an int in {-1, 0, 1}."""
+    if isinstance(rec, dict):
+        rec = rec.get("rating", 0)
+    try:
+        v = int(rec or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(-1, min(1, v))
+
+
+def load_ratings():
+    """The active viewer's ratings as {key: {"rating", "updated"}}."""
+    if rt.ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        return db_ratings_all(uid) if uid else {}
+    data = load_json(_ratings_path(), {})
+    return data if isinstance(data, dict) else {}
+
+
+def get_rating(key: str):
+    """Current rating for one show/movie key (-1, 0 or 1)."""
+    return _rating_int(load_ratings().get(key))
+
+
+def set_rating(key: str, value):
+    """Upsert one rating; a value of 0 clears it. -1/0/1 only."""
+    value = _rating_int(value)
+    if rt.ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if uid:
+            db_set_rating(uid, key, value)
+        return value
+    rp = _ratings_path()
+    with _io_lock:
+        data = load_json(rp, {})
+        if not isinstance(data, dict):
+            data = {}
+        if value == 0:
+            data.pop(key, None)
+        else:
+            data[key] = {"rating": value, "updated": time.time()}
+        save_json(rp, data)
+    return value
 
 
 # --------------------------------------------------------------------------- #
