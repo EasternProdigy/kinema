@@ -418,6 +418,18 @@
   <div id="keyHud" class="key-hud" aria-hidden="true"></div>
 
   <script src="/qr.js"></script>
-  <script src="/app.js"></script>
+  <!-- App, split into ordered classic scripts (shared global scope). main.js boots last. -->
+  <script src="/js/util.js"></script>
+  <script src="/js/icons.js"></script>
+  <script src="/js/state.js"></script>
+  <script src="/js/routing.js"></script>
+  <script src="/js/library.js"></script>
+  <script src="/js/manage.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/accounts.js"></script>
+  <script src="/js/player.js"></script>
+  <script src="/js/playerui.js"></script>
+  <script src="/js/keys.js"></script>
+  <script src="/js/main.js"></script>
 </body>
 </html>

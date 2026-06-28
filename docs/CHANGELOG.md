@@ -49,6 +49,11 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   Launchers now work from either a source checkout or a release binary.
 
 ### Changed
+- **Codebase split for maintainability** (no behaviour change). The single big
+  `server.py` is now the `src/kadmu/` package (modules: const · rt · accounts ·
+  media · store · security · library · handler · app), with `src/server.py` kept as
+  a thin launcher; the single big `app.js` is now ordered classic scripts under
+  `src/web/js/`. Still pure standard library, no build step, no bundler, no `pip`.
 - **Continue watching is now one card per series.** Instead of every part-watched
   episode, the row shows a single tile per show — the episode you're mid-way
   through, or the next one when you've just finished one (it advances and starts the

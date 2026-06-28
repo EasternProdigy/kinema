@@ -8,32 +8,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 videos and watch them in the browser with thumbnails, resume, autoplay, and Firefox
 Picture-in-Picture; optionally stream across the LAN. MIT licensed, by Pentarosa Co.
 
-The whole app is **two moving parts**: a single-file Python backend
-([src/server.py](src/server.py), standard library only) and a static vanilla-JS frontend
-([src/web/](src/web/)). No framework, no build step, no `pip install`. ffmpeg/ffprobe are
+The whole app is **two moving parts**: a Python backend — the **`src/kadmu/` package**
+(standard library only), launched by the thin shim [src/server.py](src/server.py) — and a
+static vanilla-JS frontend ([src/web/](src/web/), a set of **ordered classic scripts** under
+`src/web/js/`). No framework, no build step, no bundler, no `pip install`. ffmpeg/ffprobe are
 used for thumbnails, duration/codec metadata, and on-the-fly remux/transcode of non-native
 containers — the app still runs (minus those features) without them.
+
+> It used to be one giant `server.py` and one giant `app.js`; both were split by concern into
+> the layout below. The *promises* are unchanged (stdlib-only, no build, no bundler); only the
+> file count changed.
 
 ## Repository layout
 
 ```
 kadmu/
-├─ src/            server.py + web/  (the entire application)
+├─ src/
+│  ├─ server.py     thin launcher → kadmu.app.main()  (the entry point everything targets)
+│  ├─ kadmu/        the backend package (see "Architecture › Backend")
+│  └─ web/          the frontend: index.html · style.css · qr.js · js/*.js · fonts/
 ├─ scripts/        run.sh · dev.sh · demo.sh · make-sample-library.sh
 ├─ launchers/      double-click launchers (Linux/macOS/Windows) + install-linux.sh
 ├─ deploy/         Dockerfile · docker-compose.yml · .env.example
-├─ docs/           CONTRIBUTING · SECURITY · CHANGELOG · NOTICE · BRAND.md + brand/ (deck)
+├─ docs/           CONTRIBUTING · SECURITY · CHANGELOG · NOTICE · ROADMAP · BRAND.md + brand/
 ├─ install.sh / install.ps1   one-line installers (curl|bash / irm|iex)
 ├─ CLAUDE.md · README.md · LICENSE
 └─ (runtime, git-ignored) data/  cache/  bin/    ← at the PROJECT ROOT, not in src/
 ```
 
-**Path invariant worth knowing up front:** `src/server.py` keeps its runtime state at the
-*project root* (one level up), not next to itself. In source mode `STATE_DIR = APP_DIR.parent`,
-so `data/`, `cache/` (thumbs + remux), and a downloaded static `bin/ffmpeg` all live at the
-repo root. The Docker image mirrors the `src/` layout so this resolves to `/app` in-container.
-If you move `server.py` or change `APP_DIR`/`STATE_DIR`, re-check `_find_tool`, the Dockerfile,
-and all the launcher/script paths together.
+**Path invariant worth knowing up front:** the app keeps its runtime state at the *project
+root*, not next to the code. Paths are computed in [src/kadmu/const.py](src/kadmu/const.py):
+`APP_DIR` is the `src/` dir (this is why const.py uses `Path(__file__).resolve().parent.parent`
+— it lives one level deeper than the old `server.py`), `WEB_DIR = src/web`, and in source mode
+`STATE_DIR = APP_DIR.parent` (the repo root), so `data/`, `cache/` (thumbs + remux), and a
+downloaded static `bin/ffmpeg` all live there. The Docker image mirrors the `src/` layout so
+this resolves to `/app` in-container. If you move the package or change `APP_DIR`/`STATE_DIR`,
+re-check `_find_tool`, the Dockerfile, and the launcher/script paths together.
 
 ## Commands
 
@@ -42,7 +52,7 @@ and all the launcher/script paths together.
 python3 src/server.py ~/Videos      # add a folder and start; or just `python3 src/server.py`
 ./scripts/run.sh [args...]          # same, passes args through to src/server.py
 
-# Develop — auto-restarts the backend when src/server.py changes.
+# Develop — auto-restarts the backend when src/server.py or src/kadmu/* changes.
 # Frontend (src/web/*) needs no restart: edit and refresh the browser tab.
 ./scripts/dev.sh                    # http://127.0.0.1:8000, --no-open
 ./scripts/dev.sh --lan              # any extra args pass through to src/server.py
@@ -52,12 +62,13 @@ python3 src/server.py ~/Videos      # add a folder and start; or just `python3 s
 bash scripts/make-sample-library.sh [out-dir]   # just generate the sample tree
 
 # Checks (this is the entire CI gate — see .github/workflows/ci.yml)
-python3 -m py_compile src/server.py # backend syntax
-node --check src/web/app.js         # frontend syntax
+python3 -m py_compile src/server.py src/kadmu/*.py     # backend syntax (whole package)
+for f in src/web/*.js src/web/js/*.js; do node --check "$f"; done  # frontend syntax
 # CI also boots the server and asserts GET /api/session returns "app": "Kadmu"
 
 # Release bundles (normally only via tag push, see .github/workflows/release.yml)
-pyinstaller --onefile --name kadmu --add-data "src/web:web" \
+# --paths src lets PyInstaller find the `kadmu` package from the server.py shim.
+pyinstaller --onefile --name kadmu --paths src --add-data "src/web:web" \
   --add-binary "<ffmpeg>:." --add-binary "<ffprobe>:." src/server.py
 
 # Public read-only demo image (build context MUST be the project root)
@@ -70,11 +81,32 @@ relevant flows (browse, play, resume, PiP, and `--lan`/`--password`/`--read-only
 
 ## Architecture
 
-### Backend — [src/server.py](src/server.py) (one file)
+### Backend — the [src/kadmu/](src/kadmu/) package
 
-A `ThreadingHTTPServer` with a single `BaseHTTPRequestHandler` subclass (`Handler`). There is
-no router abstraction — `do_GET`/`do_POST` are long `if route == ...` chains. Every request
-passes through one **security gate** before any work happens:
+[src/server.py](src/server.py) is a thin launcher; the backend lives in `src/kadmu/`, split by
+concern into modules whose dependencies point downward (no import cycles):
+
+| module | responsibility |
+|---|---|
+| `const` | constants, paths, locks, the JSON helpers (`load_json`/`save_json`) — the foundation, no intra-package deps |
+| `rt` | the mutable runtime flags set in `main()` (`READONLY`, `LAN_MODE`, `ACCOUNTS_ENABLED`, `PW_*`, …) — always read as `rt.NAME` so values stay live |
+| `accounts` | the SQLite store: users, persistent sessions, per-user data, the legacy-JSON importer |
+| `media` | ffmpeg: `probe_meta`, thumbnails, covers, subtitles→VTT, storyboards, the demo generator, cache pruning |
+| `store` | library config/roots, resume progress, My List, viewer profiles, `resolve_within_roots`/`owning_root` |
+| `security` | Host/CSRF/auth, the legacy shared-password sessions + login throttle, password hashing, the LAN toggle |
+| `library` | directory listing, the folder browser, search + background index, file ops (rename/move/delete-to-trash) |
+| `handler` | the one `BaseHTTPRequestHandler` subclass and its route chains |
+| `app` | the threaded server, the cache/trash/session janitor, browser launch, and `main()` |
+
+> **The two load-bearing rules when editing across modules:** (1) the mutable runtime flags live
+> only in `rt` and are referenced as `rt.NAME` (a bare `from .rt import READONLY` would capture a
+> stale value); (2) everything else is imported by name (`from .store import load_progress`), so
+> cross-module calls read like the old flat namespace. There's no third-party linter — a quick
+> `python3 -m py_compile src/kadmu/*.py` plus actually importing `kadmu.app` catches mistakes.
+
+A `ThreadingHTTPServer` (in `app`) drives a single `BaseHTTPRequestHandler` subclass (`Handler`,
+in `handler`). There is no router abstraction — `do_GET`/`do_POST` are long `if route == ...`
+chains. Every request passes through one **security gate** before any work happens:
 
 `Handler._guard(route, mutating)` enforces, in order:
 1. **Host allow-listing** (`host_allowed`) — blocks DNS-rebinding. Only localhost + the
@@ -142,18 +174,24 @@ are read from the temp extract dir (`_MEIPASS`) and `STATE_DIR` is `~/.kadmu`. F
 `WEB_DIR = src/web` and `STATE_DIR = APP_DIR.parent` (the repo root) — see the path invariant
 above.
 
-### Frontend — [src/web/](src/web/) (no build step)
+### Frontend — [src/web/](src/web/) (no build step, no bundler)
 
 - [src/web/index.html](src/web/index.html) — the entire DOM up front (library view, player
   overlay, settings modal, generic dialog, login overlay), toggled via `.hidden`. Single-page app.
-- [src/web/app.js](src/web/app.js) — vanilla JS, one `state` object, no framework. All server
-  calls go through the `api()` helper (injects the `X-Kadmu` CSRF header; on 401 with `needAuth`
-  it pops the login overlay). The UI is gated by `/api/session` flags (`canManage`, `canBrowse`,
-  `readonly`, `nativePicker`, `ffmpeg`) from `_session_state()` — the backend is the authority
-  on capabilities; the frontend only reflects them. Thumbnails load lazily via an
-  `IntersectionObserver`. Last folder and volume persist in `localStorage`.
+- [src/web/js/](src/web/js/) — vanilla JS, **one `state` object, no framework, no modules**. The
+  old `app.js` was split into **ordered classic `<script>` files** that share the global scope;
+  `index.html` loads them in a fixed order and `main.js` boots last:
+  `util → icons → state → routing → library → manage → settings → accounts → player → playerui →
+  keys → main`. Because they're classic scripts, top-level `const`/`function` in one file are
+  visible to the others, so cross-file calls work unchanged — **the only constraints are load
+  order (`util.js` defines `$` first; `main.js`'s init IIFE runs last) and declaring each name
+  once.** If you add a file, add a `<script>` tag in the right spot. All server calls go through
+  the `api()` helper (`util.js`; injects the `X-Kadmu` CSRF header; on 401 `needAuth` it pops the
+  login overlay). The UI is gated by `/api/session` flags (`canManage`, `canBrowse`, `readonly`,
+  `accounts`, `role`, …) from `_session_state()` — the backend is the authority on capabilities.
+  Thumbnails load lazily via an `IntersectionObserver`; last folder/volume persist in `localStorage`.
 - [src/web/style.css](src/web/style.css) — hand-written; bundled fonts in `src/web/fonts/`,
-  served via the `/fonts/*.woff2` route.
+  served via the `/fonts/*.woff2` route. The split scripts are served via the `/js/*.js` route.
 
 ### API surface (all under `/api/`)
 
@@ -165,9 +203,10 @@ file's `audios`/`subs` track lists), `thumb?path=`, `stream?path=` (Range + remu
 to extract an embedded text track), `mylist`, `playlists`, `trash` (item count + bytes).
 POST: `login`, `logout`, `progress`, `progress/clear`, `mylist`, `lan`, `password`, `config`,
 `playlists`, `pick-folder` (native OS dialog on the server desktop), `add-paths`
-(drag-and-drop), `op` (rename/move/mkdir/delete/empty-trash). Static files (`/`, `/app.js`,
-`/style.css`, `/favicon.svg`) are served by `_serve_static`; the app shell also carries the
-strict `CSP`.
+(drag-and-drop), `op` (rename/move/mkdir/delete/empty-trash). New routes since: `register`,
+`account`, `users` (admin), `prefs` (accounts mode). Static files (`/`, `/style.css`,
+`/qr.js`, `/favicon.svg`) are served by `_serve_static`; the split frontend scripts via the
+`/js/*.js` route and fonts via `/fonts/*.woff2`. The app shell also carries the strict `CSP`.
 
 **Background library index.** A daemon thread (`start_indexer` → `_indexer_loop`) walks every
 root and builds an in-memory catalog of folders + video files; `search_library` ranks against

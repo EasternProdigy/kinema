@@ -12,15 +12,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-# Mirror the repo layout (src/server.py + src/web) so server.py keeps runtime
-# state at the project root, which inside the container is /app.
+# Mirror the repo layout (src/server.py + src/kadmu + src/web) so the package keeps
+# runtime state at the project root, which inside the container is /app.
 COPY src/server.py ./src/server.py
+COPY src/kadmu ./src/kadmu
 COPY src/web ./src/web
 COPY scripts ./scripts
 
 # Bake in the royalty-free sample library at build time (same generator the
 # in-app `--demo` mode uses).
-RUN python -c "import sys; sys.path.insert(0, 'src'); from pathlib import Path; import server; server.build_demo_library(Path('/app/demo-library'))"
+RUN python -c "import sys; sys.path.insert(0, 'src'); from pathlib import Path; from kadmu.media import build_demo_library; build_demo_library(Path('/app/demo-library'))"
 
 ENV KADMU_PORT=8000 KADMU_READONLY=1
 EXPOSE 8000

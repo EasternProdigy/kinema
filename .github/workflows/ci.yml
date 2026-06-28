@@ -14,9 +14,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile-check the server
-        run: python -m py_compile src/server.py
+        run: python -m py_compile src/server.py src/kadmu/*.py
       - name: Syntax-check the frontend
-        run: node --check src/web/app.js
+        run: for f in src/web/*.js src/web/js/*.js; do node --check "$f"; done
       - name: Boot smoke test
         run: |
           python src/server.py --no-open --port 8011 &

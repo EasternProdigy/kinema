@@ -63,6 +63,7 @@ jobs:
         if: matrix.name != 'windows'
         run: |
           pyinstaller --onefile --name kadmu \
+            --paths src \
             --add-data "src/web${{ matrix.sep }}web" \
             --add-binary "${FF_FFMPEG}${{ matrix.sep }}." \
             --add-binary "${FF_FFPROBE}${{ matrix.sep }}." \
@@ -73,6 +74,7 @@ jobs:
         shell: pwsh
         run: |
           pyinstaller --onefile --name kadmu `
+            --paths src `
             --add-data "src/web;web" `
             --add-binary "$env:FF_FFMPEG;." `
             --add-binary "$env:FF_FFPROBE;." `
