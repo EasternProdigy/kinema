@@ -4,18 +4,20 @@ route chains. Pulls together every other module; nothing imports handler but app
 from __future__ import annotations
 import json
 import re
+import socket
 import subprocess
+import sys
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import rt
+from . import ops, rt
 from .const import (
     APP_NAME, APP_VERSION, FFMPEG, MIME, MP4_COPY_ACODECS, MP4_COPY_VCODECS,
-    NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES, SESSIONS, SESSIONS_LOCK,
-    SUBTITLE_EXTS, TRANSCODE_LADDER, WEB_DIR, _REQ, _io_lock, _stream_sem,
-    load_json, save_json,
+    NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES, REQUEST_TIMEOUT, SESSIONS,
+    SESSIONS_LOCK, SUBTITLE_EXTS, TRANSCODE_LADDER, WEB_DIR, _REQ, _io_lock,
+    _stream_sem, load_json, save_json,
 )
 from .accounts import (
     CLEAR_COOKIE, _current_uid, _db, _meta_set, _pw_check, _session_cookie,
@@ -30,8 +32,9 @@ from .store import (
     set_config, set_progress,
 )
 from .security import (
-    host_allowed, login_check, login_fail, login_ok, new_session, parse_cookies,
-    password_required, session_valid, set_lan_mode, set_password, verify_password,
+    host_allowed, is_loopback, login_check, login_fail, login_ok, new_session,
+    parse_cookies, password_required, session_valid, set_lan_mode, set_password,
+    verify_password,
 )
 from .media import (
     _h264_encoder, browser_playable, build_storyboard, embedded_subtitle_vtt,
@@ -65,12 +68,27 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = f"{APP_NAME}/{APP_VERSION}"
     # Reclaim idle keep-alive connections so sleeping tabs/phones can't slowly
-    # accumulate handler threads across a multi-hour session. A live transfer
-    # resets this on every chunk; only a truly stalled socket trips it.
-    timeout = 120
+    # accumulate handler threads across a multi-hour session — and a slow-loris
+    # backstop. A live transfer resets this on every chunk; only a stalled socket
+    # trips it. Tunable via KADMU_REQUEST_TIMEOUT.
+    timeout = REQUEST_TIMEOUT
 
     def log_message(self, fmt, *args):
         pass
+
+    def log_request(self, code="-", size="-"):
+        # Capture the final status for metrics/access logging; suppress the noisy
+        # default per-line logging (we emit our own structured line in _finish).
+        try:
+            self._status = int(code)
+        except (TypeError, ValueError):
+            pass
+
+    def send_response(self, code, message=None):
+        # Track that the response has started so an error mid-route knows whether
+        # it can still send a clean 500 (vs. having to drop the connection).
+        self._response_started = True
+        super().send_response(code, message)
 
     # -- inject security headers on every response -------------------------- #
     def end_headers(self):
@@ -78,6 +96,37 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
         super().end_headers()
+
+    # -- accounting / identity --------------------------------------------- #
+    def _identity(self):
+        """The bandwidth/quota identity for this request: the signed-in user in
+        accounts mode, else the peer IP. Cached on the request thread."""
+        ident = getattr(_REQ, "identity", None)
+        if ident is not None:
+            return ident
+        if rt.ACCOUNTS_ENABLED:
+            u = self._resolve_user()
+            if u:
+                ident = f"user:{u['id']}"
+        if ident is None:
+            ip = self.client_address[0] if self.client_address else "?"
+            ident = f"ip:{ip}"
+        _REQ.identity = ident
+        return ident
+
+    def _wrote(self, n):
+        """Account n response-body bytes against this request + the bandwidth meter."""
+        if n <= 0:
+            return
+        _REQ.bytes_out = getattr(_REQ, "bytes_out", 0) + n
+        ops.add_bytes(self._identity(), n)
+
+    def _log_user(self):
+        if rt.ACCOUNTS_ENABLED:
+            u = self._resolve_user()
+            if u:
+                return u.get("username")
+        return None
 
     # -- response helpers --------------------------------------------------- #
     def _send_json(self, obj, status=200, extra_headers=None):
@@ -91,6 +140,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+            self._wrote(len(body))
 
     def _send_bytes(self, data, ctype, status=200, cache=True):
         self.send_response(status)
@@ -101,6 +151,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
+            self._wrote(len(data))
 
     def _read_body(self):
         try:
@@ -192,9 +243,17 @@ class Handler(BaseHTTPRequestHandler):
         MP4. There's no Content-Length (we read until ffmpeg exits) and no byte
         ranges (Accept-Ranges: none) — the player re-requests with a new `t` to
         seek. Playback starts in ~1-2s instead of waiting for a whole-file convert."""
+        # Per-identity concurrency cap (quota): one viewer/IP can't tie up every
+        # live encode. Checked before the global pool so the message is accurate.
+        ident = self._identity()
+        if not ops.stream_acquire(ident):
+            ops.note_stream_rejected()
+            return self._send_json({"error": "You have too many videos playing at once. "
+                                    "Stop one and try again."}, 429)
         # Cap concurrent live encodes (see _stream_sem). A short wait smooths bursts,
         # but never hang a client forever — tell them we're busy so they can retry.
         if not _stream_sem.acquire(timeout=20):
+            ops.stream_release(ident)
             return self._send_json({"error": "Server busy — too many videos are being "
                                     "prepared right now. Try again in a moment."}, 503)
         try:
@@ -218,6 +277,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not chunk:
                         break
                     self.wfile.write(chunk)
+                    self._wrote(len(chunk))
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass                            # client switched quality / closed the tab
             finally:
@@ -229,6 +289,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (subprocess.SubprocessError, OSError): pass
         finally:
             _stream_sem.release()
+            ops.stream_release(ident)
 
     def _stream_remux(self, path: Path, start: float, audio: int = 0):
         """Make a non-native file (an .mkv, or HEVC/x265 inside an .mp4, …) playable
@@ -344,6 +405,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not data:
                         break
                     self.wfile.write(data)
+                    self._wrote(len(data))
                     remaining -= len(data)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
@@ -364,6 +426,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
+            self._wrote(len(data))
 
     def _placeholder_thumb(self):
         gif = (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00!"
@@ -421,16 +484,119 @@ class Handler(BaseHTTPRequestHandler):
         _REQ.profile = (_profile_slug(self.headers.get("X-Kadmu-Profile", ""))
                         if rt.PROFILES_ENABLED else "default")
 
+    # -- request lifecycle (metrics, rate-limit, logging, error capture) ---- #
+    def _begin(self):
+        """Reset per-request state — handler threads are reused, so clear it all."""
+        self._t0 = time.time()
+        self._status = 200
+        self._response_started = False
+        _REQ.user = None
+        _REQ._user_done = False
+        _REQ.identity = None
+        _REQ.bytes_out = 0
+
+    def _finish(self):
+        ops.record_request(getattr(self, "_status", 200))
+        try:
+            ops.access_log(
+                self.command, self.path, getattr(self, "_status", 200),
+                getattr(_REQ, "bytes_out", 0),
+                int((time.time() - getattr(self, "_t0", time.time())) * 1000),
+                self.client_address[0] if self.client_address else "?",
+                self._log_user(),
+            )
+        except Exception:
+            pass
+
+    def _on_route_error(self):
+        exc = sys.exc_info()[1]
+        # client vanished mid-request (closed tab, sleeping phone) — expected, not ours.
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError,
+                            ConnectionAbortedError, TimeoutError, socket.timeout)):
+            self.close_connection = True
+            return
+        ops.record_error()
+        ops.error_log(self.command, self.path, exc)
+        # If nothing has gone out yet we can still return a clean 500; otherwise the
+        # only safe move is to drop the (partly-written) connection.
+        if not getattr(self, "_response_started", False):
+            try:
+                self._send_json({"error": "Internal server error"}, 500)
+                return
+            except Exception:
+                pass
+        self.close_connection = True
+
+    def _pre(self, route):
+        """Checks common to every verb, run before the security gate: health checks
+        (which bypass all gating so monitors always work) and per-IP rate limiting
+        (loopback is exempt). Returns False if the request was handled/rejected here."""
+        if route == "/healthz" and self.command in ("GET", "HEAD"):
+            self._send_healthz()
+            return False
+        ip = self.client_address[0] if self.client_address else ""
+        if not is_loopback(ip):
+            ok, retry = ops.rate_ok(ip)
+            if not ok:
+                ops.note_rate_limited()
+                self._send_json({"error": "Too many requests. Slow down."}, 429,
+                                extra_headers={"Retry-After": str(retry)})
+                return False
+        return True
+
+    def _send_healthz(self):
+        self._send_json({"status": "ok", "app": APP_NAME,
+                         "version": APP_VERSION, "uptime": round(ops.uptime(), 1)})
+
+    def _serve_metrics(self):
+        """Prometheus metrics. Host-checked like everything else; readable without a
+        session from loopback (so a local scraper / `curl` just works), but otherwise
+        requires auth (admin in accounts mode) so it isn't world-readable on the LAN."""
+        if not host_allowed(self.headers.get("Host", "")):
+            return self._send_json({"error": "Host not allowed"}, 403)
+        ip = self.client_address[0] if self.client_address else ""
+        allowed = is_loopback(ip)
+        if not allowed:
+            allowed = self._is_admin() if rt.ACCOUNTS_ENABLED else self._authed()
+        if not allowed:
+            return self._send_json({"error": "Authentication required", "needAuth": True}, 401)
+        self._send_bytes(ops.render_metrics().encode("utf-8"),
+                         "text/plain; version=0.0.4; charset=utf-8", cache=False)
+
     # -- verbs -------------------------------------------------------------- #
     def do_HEAD(self):
         self.do_GET()
 
     def do_GET(self):
+        self._begin()
+        try:
+            route = urlparse(self.path).path
+            if not self._pre(route):
+                return
+            self._route_get()
+        except Exception:
+            self._on_route_error()
+        finally:
+            self._finish()
+
+    def do_POST(self):
+        self._begin()
+        try:
+            route = urlparse(self.path).path
+            if not self._pre(route):
+                return
+            self._route_post()
+        except Exception:
+            self._on_route_error()
+        finally:
+            self._finish()
+
+    def _route_get(self):
         parsed = urlparse(self.path)
         route, qs = parsed.path, parse_qs(parsed.query)
 
-        _REQ.user = None            # reset per-request identity (threads are reused)
-        _REQ._user_done = False
+        if route == "/metrics":
+            return self._serve_metrics()
         if not self._guard(route, mutating=False):
             return
         self._set_profile()
@@ -640,11 +806,8 @@ class Handler(BaseHTTPRequestHandler):
 
         return self._send_json({"error": "not found"}, 404)
 
-    def do_POST(self):
+    def _route_post(self):
         route = urlparse(self.path).path
-
-        _REQ.user = None            # reset per-request identity (threads are reused)
-        _REQ._user_done = False
         if not self._guard(route, mutating=True):
             return
         self._set_profile()

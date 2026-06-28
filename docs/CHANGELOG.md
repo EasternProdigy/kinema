@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Public-hardening & ops (Phase 3).** Optional **built-in HTTPS** — point Kadmu at a cert and
+  key with `--tls CERT KEY` (or `KADMU_TLS_CERT`/`KADMU_TLS_KEY`) and every URL it serves becomes
+  `https://`; for public exposure a reverse proxy with automatic certs is still recommended
+  (a ready-made [`deploy/Caddyfile`](../deploy/Caddyfile) + [`deploy/README.md`](../deploy/README.md)
+  are included). **Per-IP rate limiting** (a token bucket; loopback always exempt) now defends
+  every route — not just login — against floods, tunable via `KADMU_RATE_RPS`/`KADMU_RATE_BURST`
+  or off with `--no-rate-limit`. **Observability:** a `GET /healthz` liveness probe, a Prometheus
+  `GET /metrics` endpoint (requests, response classes, bytes served, errors, active streams,
+  per-user bandwidth in accounts mode), optional **structured per-request JSON logging**
+  (`--log-requests`, or `KADMU_ACCESS_LOG` to a file), and clean 500s with error capture instead
+  of dropped connections. **Quotas/accounting:** a per-user (or per-IP) cap on simultaneous live
+  transcode/remux streams (`KADMU_USER_MAX_STREAMS`, default 3) plus a bandwidth meter — the
+  groundwork for paid tiers. All standard-library only; defaults are tuned so a normal browser
+  never trips the limiter.
 - **Multi-user accounts (opt-in, `--accounts`).** Real sign-in for households and shared
   boxes, backed by an embedded **SQLite** database (`sqlite3`, still standard-library only —
   no `pip`). Each person gets their **own** resume points, My List, playlists and display

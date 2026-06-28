@@ -31,12 +31,17 @@ internet. If you expose it publicly, do so behind a reverse proxy with HTTPS, se
 | **Server-side folder browser** | The `/api/browse` picker (which can see directory names outside the library) is disabled in read-only mode and requires auth. |
 | **XSS** | All user/file-derived strings are HTML-escaped before rendering, and a strict `Content-Security-Policy` (`script-src 'self'`, no inline scripts) is sent with the app. |
 | **Resource exhaustion** | Concurrent `ffmpeg` thumbnail jobs are capped; request bodies are size-limited; video is streamed in bounded chunks with proper HTTP Range handling. |
+| **Request flooding** | A per-IP **token-bucket rate limiter** applies to every route (not just login), defanging floods meant to peg the CPU (e.g. hammering search to force re-indexing). Loopback is always exempt; tune with `KADMU_RATE_RPS`/`KADMU_RATE_BURST`, or disable with `--no-rate-limit`. Behind a same-host reverse proxy, rate-limit at the proxy (Kadmu sees only the loopback proxy). |
+| **Stream abuse / quotas** | Beyond the global live-encode cap, each identity (signed-in user in accounts mode, else IP) is limited to `KADMU_USER_MAX_STREAMS` simultaneous live transcode/remux streams, so one viewer can't tie up every core. A bandwidth meter tracks bytes served per identity. |
+| **Slow-loris / idle sockets** | A per-request socket timeout (`KADMU_REQUEST_TIMEOUT`, default 120s) reclaims stalled connections; a live transfer resets it on every chunk. |
+| **Transport security (TLS)** | Optional **built-in HTTPS** (`--tls CERT KEY`, or `KADMU_TLS_CERT`/`KADMU_TLS_KEY`) for direct LAN serving, or terminate TLS at a reverse proxy (recommended for public exposure — see [`deploy/Caddyfile`](../deploy/Caddyfile)). Built-in TLS sends no HSTS so a self-signed cert can't lock a browser out of the host. |
 | **Clickjacking / sniffing** | `X-Frame-Options: DENY`, `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`. |
 | **Command injection** | `ffmpeg`/`ffprobe` are invoked as argument vectors (never a shell) with `--` before filenames. |
 
 ## What Kadmu does NOT do
 
-- No TLS/HTTPS itself — terminate TLS at a reverse proxy if exposing beyond your LAN.
+- No automatic certificate management — built-in TLS (`--tls`) takes a cert/key you supply; for
+  auto-HTTPS on a public domain, terminate TLS at a reverse proxy (see [`deploy/`](../deploy/)).
 - No per-user *libraries* — everyone who can sign in sees the same configured folders. Accounts
   (opt-in, `--accounts`) isolate per-user *data* (resume points, My List, playlists, prefs) and
   add admin/viewer roles, but they share one library. The default is still a single shared password.

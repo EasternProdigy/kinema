@@ -95,8 +95,9 @@ concern into modules whose dependencies point downward (no import cycles):
 | `store` | library config/roots, resume progress, My List, viewer profiles, `resolve_within_roots`/`owning_root` |
 | `security` | Host/CSRF/auth, the legacy shared-password sessions + login throttle, password hashing, the LAN toggle |
 | `library` | directory listing, the folder browser, search + background index, file ops (rename/move/delete-to-trash) |
+| `ops` | public-hardening & ops: in-memory metrics, structured request/error logging, the per-IP rate limiter, per-identity concurrent-stream accounting + the bandwidth meter (depends only on `const`/`rt`) |
 | `handler` | the one `BaseHTTPRequestHandler` subclass and its route chains |
-| `app` | the threaded server, the cache/trash/session janitor, browser launch, and `main()` |
+| `app` | the threaded server (optional built-in TLS), the cache/trash/session janitor, browser launch, and `main()` |
 
 > **The two load-bearing rules when editing across modules:** (1) the mutable runtime flags live
 > only in `rt` and are referenced as `rt.NAME` (a bare `from .rt import READONLY` would capture a
@@ -105,8 +106,15 @@ concern into modules whose dependencies point downward (no import cycles):
 > `python3 -m py_compile src/kadmu/*.py` plus actually importing `kadmu.app` catches mistakes.
 
 A `ThreadingHTTPServer` (in `app`) drives a single `BaseHTTPRequestHandler` subclass (`Handler`,
-in `handler`). There is no router abstraction — `do_GET`/`do_POST` are long `if route == ...`
-chains. Every request passes through one **security gate** before any work happens:
+in `handler`). There is no router abstraction — `_route_get`/`_route_post` are long
+`if route == ...` chains, wrapped by `do_GET`/`do_POST` which run a small **request lifecycle**:
+`_begin` (reset per-thread state) → `_pre` (health-check shortcut + per-IP **rate limiting**,
+loopback exempt — see `ops.rate_ok`) → the route → `_finish` (record metrics + emit the optional
+structured access log), with `_on_route_error` turning an unhandled exception into a clean 500
+(and a counted/logged error) instead of a dropped connection. `/healthz` and `/metrics` are
+handled here, before the gate (`/healthz` bypasses it entirely; `/metrics` does its own
+host-check + loopback-or-admin auth). Every other request passes through one **security gate**
+before any work happens:
 
 `Handler._guard(route, mutating)` enforces, in order:
 1. **Host allow-listing** (`host_allowed`) — blocks DNS-rebinding. Only localhost + the
@@ -134,6 +142,20 @@ created becomes the owner (admin) and inherits the old single-password JSON stat
 `_import_legacy_into()`. Default (no `--accounts`) is byte-for-byte the original single shared
 password — every data helper branches on `ACCOUNTS_ENABLED`. `--reset-password USERNAME` is the
 console recovery hatch. Accounts and `--profiles` are mutually exclusive (accounts subsume profiles).
+
+**Public-hardening & ops (Phase 3), all in `ops`.** *TLS:* optional built-in HTTPS
+(`--tls CERT KEY` / `KADMU_TLS_CERT`+`KADMU_TLS_KEY`) wraps the listening socket in `app.main()`
+and flips `rt.SCHEME`/`rt.TLS` so every URL we build reads `https://`; for public exposure a
+reverse proxy (see [deploy/Caddyfile](deploy/Caddyfile)) stays the recommended path. *Abuse
+protection:* a per-IP token-bucket limiter (`ops.rate_ok`, `KADMU_RATE_RPS`/`KADMU_RATE_BURST`,
+`--no-rate-limit`) runs in `_pre` for every request — **loopback is always exempt**, so behind a
+same-host proxy it sees only loopback and you should rate-limit at the proxy instead. *Observability:*
+`GET /healthz` (unauthenticated liveness, bypasses the gate), `GET /metrics` (Prometheus text;
+loopback-readable, else admin/auth), structured per-request JSON logging (`--log-requests` /
+`KADMU_ACCESS_LOG`), and `_on_route_error` for 500 capture. *Quotas/accounting:* a per-identity
+(user in accounts mode, else IP) cap on simultaneous **live** transcode/remux streams
+(`ops.stream_acquire`, `KADMU_USER_MAX_STREAMS`; native direct playback isn't counted) layered on
+the global `_stream_sem`, plus a bandwidth meter (`ops.add_bytes`, fed from every response-body write).
 
 **Path safety is the other load-bearing invariant.** Any filesystem path coming from the
 client must go through `resolve_within_roots()` (resolves symlinks/`..` and confirms the
@@ -207,6 +229,9 @@ POST: `login`, `logout`, `progress`, `progress/clear`, `mylist`, `lan`, `passwor
 `account`, `users` (admin), `prefs` (accounts mode). Static files (`/`, `/style.css`,
 `/qr.js`, `/favicon.svg`) are served by `_serve_static`; the split frontend scripts via the
 `/js/*.js` route and fonts via `/fonts/*.woff2`. The app shell also carries the strict `CSP`.
+**Ops routes (not under `/api/`, handled in the request lifecycle before the gate):** `GET
+/healthz` (unauthenticated liveness) and `GET /metrics` (Prometheus text; loopback-readable,
+else admin/auth).
 
 **Background library index.** A daemon thread (`start_indexer` → `_indexer_loop`) walks every
 root and builds an in-memory catalog of folders + video files; `search_library` ranks against
@@ -233,7 +258,8 @@ janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
   `_require_admin()` if it's library/instance management, so viewers can't manage in accounts
   mode); any user/file-derived string rendered in the frontend is run through `escapeHtml`;
   never return a password hash to the client. See [docs/SECURITY.md](docs/SECURITY.md).
-- The app is built for **localhost + trusted LAN**, not a public multi-tenant service. No TLS;
+- The app is built for **localhost + trusted LAN**, not a public multi-tenant service. TLS is
+  optional (built-in `--tls`, or terminate at a reverse proxy — [deploy/Caddyfile](deploy/Caddyfile));
   one shared password by default, optional real accounts via `--accounts`.
 - `APP_VERSION` in [src/server.py](src/server.py) and [docs/CHANGELOG.md](docs/CHANGELOG.md)
   are kept in sync on release; the `Release` workflow triggers on `v*` tags and builds
@@ -244,15 +270,22 @@ janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
 
 Flags: `[FOLDER ...]`, `--host`, `--port`, `--lan`, `--password`, `--read-only`, `--demo`,
 `--no-browse`, `--allowed-host` (repeatable), `--allow-any-host`, `--app`, `--kiosk`,
-`--no-open`, `--profiles`, `--accounts`, `--reset-password USERNAME`, `--version`.
+`--no-open`, `--profiles`, `--accounts`, `--reset-password USERNAME`, `--tls CERT KEY`,
+`--log-requests`, `--no-rate-limit`, `--version`.
 `--accounts` turns on multi-user accounts (SQLite); `--reset-password USERNAME` resets/creates
 that account as admin (using `KADMU_NEW_PASSWORD`, else a printed random one) and exits.
+`--tls CERT KEY` serves built-in HTTPS; `--log-requests` emits structured per-request JSON logs;
+`--no-rate-limit` disables the per-IP limiter.
 Env equivalents read at startup: `KADMU_PASSWORD`, `KADMU_PORT`, `KADMU_READONLY`,
 `KADMU_PROFILES`, `KADMU_ACCOUNTS`, `KADMU_NEW_PASSWORD` (for `--reset-password`),
 `KADMU_LAUNCH_MODE` (`tab`/`app`/`kiosk`), `KADMU_CACHE_LIMIT_MB`, `KADMU_CACHE_TTL_SEC`,
 `KADMU_TRASH_TTL_DAYS` (auto-purge trash after N days; default 14), `KADMU_MAX_STREAMS`
 (concurrent live ffmpeg streams; default 5), `KADMU_INDEX_REFRESH_SEC` (background re-walk
 interval; default 300), `KADMU_ALLOWED_HOSTS`, `KADMU_FFMPEG`, `KADMU_FFPROBE`.
+**Phase 3 ops:** `KADMU_TLS_CERT`/`KADMU_TLS_KEY` (built-in HTTPS), `KADMU_RATE_LIMIT` (0 to
+disable), `KADMU_RATE_RPS`/`KADMU_RATE_BURST` (per-IP token bucket; default 50/200),
+`KADMU_USER_MAX_STREAMS` (per-user/IP live-stream cap; default 3), `KADMU_REQUEST_TIMEOUT`
+(idle-socket timeout; default 120), `KADMU_LOG_REQUESTS`, `KADMU_ACCESS_LOG` (log file; default stdout).
 
 ## Launchers & desktop icons
 

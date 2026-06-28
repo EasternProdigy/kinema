@@ -26,4 +26,19 @@ jobs:
             sleep 0.2
           done
           curl -sf "http://127.0.0.1:8011/api/session" | grep -q '"app": "Kadmu"'
+          # Phase 3 ops endpoints: liveness + Prometheus metrics (loopback-readable)
+          curl -sf "http://127.0.0.1:8011/healthz" | grep -q '"status": "ok"'
+          curl -sf "http://127.0.0.1:8011/metrics" | grep -q '^kadmu_requests_total '
+          kill "$PID"
+      - name: TLS boot smoke test
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \
+            -days 1 -subj "/CN=localhost"
+          python src/server.py --no-open --port 8012 --tls cert.pem key.pem &
+          PID=$!
+          for i in $(seq 1 30); do
+            curl -ksf "https://127.0.0.1:8012/api/session" >/dev/null && break
+            sleep 0.2
+          done
+          curl -ksf "https://127.0.0.1:8012/api/session" | grep -q '"app": "Kadmu"'
           kill "$PID"

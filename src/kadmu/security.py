@@ -158,12 +158,21 @@ def login_ok(ip):
 
 
 
+def is_loopback(ip):
+    """True for a loopback peer (the box owner, or a same-host reverse proxy)."""
+    try:
+        return ipaddress.ip_address(ip).is_loopback
+    except ValueError:
+        return False
+
+
 def compute_server_urls():
-    """The URLs shown in Settings, reflecting the current network-sharing state."""
-    urls = [f"http://127.0.0.1:{rt.PORT}"]
+    """The URLs shown in Settings, reflecting the current network-sharing state.
+    Uses rt.SCHEME so they read https:// once built-in TLS is on."""
+    urls = [f"{rt.SCHEME}://127.0.0.1:{rt.PORT}"]
     if rt.LAN_MODE:
         for ip in sorted(h for h in local_hostnames() if _is_lan_ip(h)):
-            urls.append(f"http://{ip}:{rt.PORT}")
+            urls.append(f"{rt.SCHEME}://{ip}:{rt.PORT}")
     return urls
 
 

@@ -18,3 +18,10 @@ PORT = 8000               # port we serve on (used to build the share URLs)
 BIND_HOST = "0.0.0.0"     # socket bind address
 LAN_TOGGLEABLE = False    # True when the bind address can reach the LAN (wildcard bind)
 SERVER_URLS = []          # URLs shown in Settings, reflecting the sharing state
+
+# Phase 3 — public-hardening & ops
+SCHEME = "http"           # "https" once built-in TLS is on (--tls); drives every URL we build
+TLS = False               # built-in HTTPS enabled (cert+key supplied via --tls / env)
+RATE_LIMIT = True         # per-IP request rate limiting on (loopback always exempt)
+LOG_REQUESTS = False      # emit one structured JSON log line per request
+ACCESS_LOG_PATH = None    # optional file the structured access log is appended to (else stdout)
