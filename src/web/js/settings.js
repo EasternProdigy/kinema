@@ -239,6 +239,10 @@ function renderStatus() {
           "ok")
       : statTile("lock", "Password", s.authRequired ? "Protected" : "Off", s.authRequired ? "ok" : "off"),
   ];
+  if (s.dlna) {
+    tiles.push(statTile("devices", "Play on TV (DLNA)",
+      `On — find “${escapeHtml(s.dlnaName || "Kadmu")}” on your TV`, "ok"));
+  }
   const grid = $("#statGrid");
   if (grid) { grid.innerHTML = tiles.join(""); applyIcons(grid); }
 }

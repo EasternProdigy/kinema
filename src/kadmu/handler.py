@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import archive, cloud, ops, rt, sources
+from . import archive, cloud, dlna, ops, rt, sources
 from .const import (
     APP_NAME, APP_VERSION, FFMPEG, MIME, MP4_COPY_ACODECS, MP4_COPY_VCODECS,
     NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES, REQUEST_TIMEOUT, SESSIONS,
@@ -196,6 +196,16 @@ class Handler(BaseHTTPRequestHandler):
             return json.loads(raw or b"{}")
         except json.JSONDecodeError:
             return {}
+
+    def _read_raw_body(self, cap=1_000_000):
+        """Raw request-body bytes (for non-JSON payloads like DLNA's SOAP XML)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            return b""
+        if length <= 0 or length > cap:
+            return b""
+        return self.rfile.read(length)
 
     # -- security gate ------------------------------------------------------ #
     def _resolve_user(self):
@@ -395,7 +405,7 @@ class Handler(BaseHTTPRequestHandler):
         self._pipe_ffmpeg(cmd)
 
     # -- range-aware file streaming ----------------------------------------- #
-    def _serve_file_with_range(self, filepath: Path, ctype):
+    def _serve_file_with_range(self, filepath: Path, ctype, extra_headers=None):
         try:
             file_size = filepath.stat().st_size
         except OSError:
@@ -428,6 +438,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(length))
         if status == 206:
             self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        for k, v in (extra_headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         if self.command == "HEAD":
             return
@@ -484,6 +496,72 @@ class Handler(BaseHTTPRequestHandler):
                 resp.close()
             except (OSError, AttributeError):
                 pass
+
+    # -- DLNA / UPnP MediaServer (opt-in; LAN-only, no auth) ----------------- #
+    def _dlna_xml(self, data: bytes):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/xml; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
+            self._wrote(len(data))
+
+    def _dlna_base_url(self):
+        host = self.headers.get("Host") or f"127.0.0.1:{rt.PORT}"
+        return f"http://{host}"
+
+    def _serve_dlna_get(self, route, qs):
+        if route == "/dlna/device.xml":
+            return self._dlna_xml(dlna.device_xml())
+        if route == "/dlna/cd.xml":
+            return self._dlna_xml(dlna.CONTENT_DIRECTORY_SCPD)
+        if route == "/dlna/cm.xml":
+            return self._dlna_xml(dlna.CONNECTION_MANAGER_SCPD)
+        if route == "/dlna/media":
+            path = resolve_within_roots(unquote(dlna.decode_id(qs.get("id", [""])[0]) or ""))
+            if not path or not path.is_file():
+                return self._send_json({"error": "not found"}, 404)
+            ctype = MIME.get(path.suffix.lower(), "application/octet-stream")
+            # DLNA renderers want these to accept the stream + seek.
+            extra = {"transferMode.dlna.org": "Streaming",
+                     "contentFeatures.dlna.org": dlna._dlna_pn(path.suffix.lower())}
+            return self._serve_file_with_range(path, ctype, extra_headers=extra)
+        return self._send_json({"error": "not found"}, 404)
+
+    def _serve_dlna_post(self, route):
+        body = self._read_raw_body()
+        if route == "/dlna/control/ContentDirectory":
+            action, args = dlna.parse_soap_action(body)
+            if action == "Browse":
+                didl, num, total = dlna.browse(
+                    args.get("ObjectID", "0"), args.get("BrowseFlag", "BrowseDirectChildren"),
+                    args.get("StartingIndex", 0), args.get("RequestedCount", 0),
+                    self._dlna_base_url())
+                return self._dlna_xml(dlna.browse_soap_response(didl, num, total))
+            if action == "GetSortCapabilities":
+                return self._dlna_xml(dlna.simple_soap_response(dlna._CD_TYPE, action, {"SortCaps": ""}))
+            if action == "GetSearchCapabilities":
+                return self._dlna_xml(dlna.simple_soap_response(dlna._CD_TYPE, action, {"SearchCaps": ""}))
+            if action == "GetSystemUpdateID":
+                return self._dlna_xml(dlna.simple_soap_response(dlna._CD_TYPE, action, {"Id": "1"}))
+        elif route == "/dlna/control/ConnectionManager":
+            action, args = dlna.parse_soap_action(body)
+            cm = "urn:schemas-upnp-org:service:ConnectionManager:1"
+            if action == "GetProtocolInfo":
+                return self._dlna_xml(dlna.simple_soap_response(cm, action,
+                                      {"Source": "http-get:*:*:*", "Sink": ""}))
+            if action == "GetCurrentConnectionIDs":
+                return self._dlna_xml(dlna.simple_soap_response(cm, action, {"ConnectionIDs": ""}))
+        # unknown/unsupported action
+        data = dlna.soap_fault()
+        self.send_response(500)
+        self.send_header("Content-Type", "text/xml; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
+            self._wrote(len(data))
 
     def _serve_static(self, route):
         name, ctype = STATIC_FILES[route]
@@ -550,6 +628,8 @@ class Handler(BaseHTTPRequestHandler):
             "profiles": rt.PROFILES_ENABLED and not rt.ACCOUNTS_ENABLED,
             "accounts": rt.ACCOUNTS_ENABLED,
             "tmdb": tmdb.enabled(),     # metadata layer on → discovery + sharper recs
+            "dlna": rt.DLNA,            # UPnP/DLNA MediaServer advertised for TVs/consoles
+            "dlnaName": dlna.friendly_name() if rt.DLNA else "",
             "user": None, "role": None,
         }
         if rt.ACCOUNTS_ENABLED:
@@ -717,6 +797,11 @@ class Handler(BaseHTTPRequestHandler):
     def _route_get(self):
         parsed = urlparse(self.path)
         route, qs = parsed.path, parse_qs(parsed.query)
+
+        # DLNA/UPnP (opt-in) — a separate, LAN-only trust domain with no cookies, so it
+        # runs before the auth gate. Peer IP is already restricted by verify_request.
+        if rt.DLNA and route.startswith("/dlna/"):
+            return self._serve_dlna_get(route, qs)
 
         if route == "/metrics":
             return self._serve_metrics()
@@ -994,6 +1079,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route_post(self):
         route = urlparse(self.path).path
+        # DLNA SOAP control (opt-in) — no cookies, runs before the auth gate (see _route_get).
+        if rt.DLNA and route.startswith("/dlna/"):
+            return self._serve_dlna_post(route)
         if not self._guard(route, mutating=True):
             return
         self._set_profile()

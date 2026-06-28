@@ -37,7 +37,7 @@ from .security import (
 )
 from .media import build_demo_library, prune_cache
 from .library import purge_trash, start_indexer
-from . import tmdb, enrich
+from . import tmdb, enrich, dlna
 
 def _cache_janitor():
     """Background sweep: every CACHE_SWEEP_INTERVAL seconds, clear out prepared
@@ -221,6 +221,10 @@ def main():
                         default=os.environ.get("KADMU_CDN") in ("1", "true", "yes"),
                         help="emit immutable long-cache headers + ?v=APP_VERSION on the static "
                              "app shell (for serving behind a CDN; off for normal self-host)")
+    parser.add_argument("--dlna", action="store_true",
+                        default=os.environ.get("KADMU_DLNA") in ("1", "true", "yes"),
+                        help="advertise a DLNA/UPnP MediaServer so smart TVs / consoles can "
+                             "play your library natively (LAN-local; implies network sharing)")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     args = parser.parse_args()
 
@@ -327,7 +331,10 @@ def main():
     # Always bind 0.0.0.0 so network sharing can be switched on from the app
     # without a restart; peer_allowed() (via KadmuServer.verify_request) keeps it
     # loopback-only until sharing is actually on. An explicit --host is still honoured.
-    rt.LAN_MODE = bool(args.lan) or bool(get_config().get("lan"))
+    # DLNA is inherently a LAN feature (TVs/consoles on your network), so enabling it
+    # turns on network sharing too. Off by default; opt-in via --dlna / KADMU_DLNA.
+    rt.DLNA = bool(args.dlna)
+    rt.LAN_MODE = bool(args.lan) or bool(args.dlna) or bool(get_config().get("lan"))
     bind_host = args.host or "0.0.0.0"
     rt.BIND_HOST = bind_host
     try:
@@ -446,6 +453,17 @@ def main():
     if tmdb.enabled():
         enrich.request_enrich()
 
+    # DLNA/UPnP (opt-in): advertise a MediaServer so smart TVs / consoles find Kadmu on
+    # the LAN and play natively. LAN-local — the node serves the bytes directly, zero
+    # cloud egress. The HTTP /dlna/* endpoints are live via rt.DLNA; this is discovery.
+    if rt.DLNA:
+        if dlna.start(args.port):
+            print("  DLNA:    on — look for "
+                  f"'{dlna.friendly_name()}' in your TV / console media player")
+        else:
+            print("  DLNA:    endpoints live, but SSDP discovery couldn't start "
+                  "(port 1900 busy — another DLNA server?). TVs may not auto-find it.")
+
     # Cloud-attach: do an initial license check, then keep it fresh in the background.
     cloud.start_poller()
 
@@ -460,5 +478,7 @@ def main():
     except KeyboardInterrupt:
         print(f"\n  {APP_NAME} stopped. Bye!")
     finally:
+        if rt.DLNA:
+            dlna.stop()          # send the SSDP byebye so renderers drop us cleanly
         httpd.server_close()
 

@@ -114,8 +114,15 @@ checklist). Detail + verification steps live in [LAUNCH_CHECKLIST.md §1](LAUNCH
 - **Metadata enrichment (TMDB / local `.nfo`)** — posters, backdrops, synopsis, cast, episode
   titles. The first opt-in *outbound* call (default-off — the app still never phones home). The
   hosted edition could run this as a managed service so users need no TMDB key.
-- **Cast / DLNA out** ("play on TV"), deinterlace, smart `S01E02` show/season grouping,
-  because-you-watched rows — depth on the player & discovery moat.
+- **Living-room / "replace Netflix on the couch":** **DLNA/UPnP MediaServer — shipped** (`--dlna`):
+  smart TVs/consoles discover Kadmu and play natively, LAN-local (zero egress). **Next** on this
+  front: Chromecast/Cast (opt-in sender), a 10-foot/TV-remote UI, and **HLS adaptive bitrate**
+  (smooth mobile/remote, reinforcing the cloud P2P bet). Plus deinterlace, skip-credits.
+- **Household / families:** kids profiles, **parental controls** (PIN + a maturity filter off the
+  TMDB content ratings we already fetch), merge `--accounts` + `--profiles` into one household
+  hierarchy, and per-profile library scoping. (None exist yet — the main "families can adopt it" gap.)
+- **Discovery polish (data already cached):** genre browsing + library filters (genre/year/rating),
+  a watch-history view, Top-10/most-watched, trailers, collections/franchises.
 - **Reclaim disk: Archive (shrink) + BYO-storage (offload)** — the "stop letting media eat my
   disk" pair. Both keep model A (the node does the work; our servers never touch the bytes).
   - **Archive a finished title** — a single, bounded, cancelable background ffmpeg worker

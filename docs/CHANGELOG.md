@@ -6,6 +6,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Play on the TV — DLNA / UPnP MediaServer (`--dlna`).** Kadmu now advertises itself on
+  your network so **smart TVs, PlayStation/Xbox, and most media players discover it and play
+  your library natively** — no app to install, and the TV's own decoder handles mkv/HEVC/AC3 a
+  browser can't. Off by default; opt-in with `--dlna` / `KADMU_DLNA=1` (it shares to LAN devices
+  with no auth, the DLNA trust model, so it also turns on network sharing). **LAN-local — the
+  node serves the bytes straight to the TV, zero cloud egress, stdlib only.** SSDP discovery +
+  a ContentDirectory that browses your folders; each item range-streams the raw file.
 - **Reclaim disk — Archive a finished title.** A one-click background re-encode that shrinks a
   watched show/movie to a smaller, still-watchable copy, kept in your library. Re-encodes to a
   more efficient codec at full resolution (**visually-lossless** — honest about it: truly
