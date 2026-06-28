@@ -1,6 +1,6 @@
-# Contributing to Kinema
+# Contributing to Kadmu
 
-Thanks for your interest! Kinema aims to stay **small, dependency-free, and easy to run**.
+Thanks for your interest! Kadmu aims to stay **small, dependency-free, and easy to run**.
 Please keep that spirit in mind for contributions.
 
 ## Principles
@@ -14,8 +14,8 @@ Please keep that spirit in mind for contributions.
 ## Dev setup
 
 ```bash
-git clone https://github.com/EasternProdigy/kinema.git
-cd kinema
+git clone https://github.com/EasternProdigy/kadmu.git
+cd kadmu
 python3 src/server.py ~/Videos    # run it  (or: ./scripts/run.sh)
 ```
 

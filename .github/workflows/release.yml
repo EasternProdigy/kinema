@@ -62,7 +62,7 @@ jobs:
       - name: Build (Unix)
         if: matrix.name != 'windows'
         run: |
-          pyinstaller --onefile --name kinema \
+          pyinstaller --onefile --name kadmu \
             --add-data "src/web${{ matrix.sep }}web" \
             --add-binary "${FF_FFMPEG}${{ matrix.sep }}." \
             --add-binary "${FF_FFPROBE}${{ matrix.sep }}." \
@@ -72,7 +72,7 @@ jobs:
         if: matrix.name == 'windows'
         shell: pwsh
         run: |
-          pyinstaller --onefile --name kinema `
+          pyinstaller --onefile --name kadmu `
             --add-data "src/web;web" `
             --add-binary "$env:FF_FFMPEG;." `
             --add-binary "$env:FF_FFPROBE;." `
@@ -89,17 +89,17 @@ jobs:
 
       - name: Archive (Unix)
         if: matrix.name != 'windows'
-        run: tar -C stage -czf kinema-${{ matrix.name }}.tar.gz .
+        run: tar -C stage -czf kadmu-${{ matrix.name }}.tar.gz .
 
       - name: Archive (Windows)
         if: matrix.name == 'windows'
         shell: pwsh
-        run: Compress-Archive -Path stage\* -DestinationPath kinema-windows.zip
+        run: Compress-Archive -Path stage\* -DestinationPath kadmu-windows.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: kinema-${{ matrix.name }}
-          path: kinema-${{ matrix.name }}.*
+          name: kadmu-${{ matrix.name }}
+          path: kadmu-${{ matrix.name }}.*
 
   release:
     needs: build

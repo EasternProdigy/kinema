@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Kinema dev mode.
+# Kadmu dev mode.
 #   - Frontend (src/web/*): just edit and refresh the browser tab. No restart needed.
 #   - Backend (src/server.py): this script auto-restarts the server when you save it.
 # Any extra args pass through to src/server.py, e.g.:  ./dev.sh --lan
 cd "$(dirname "$0")/.." || exit 1
 
-PORT="${KINEMA_PORT:-8000}"
+PORT="${KADMU_PORT:-8000}"
 PY="$(command -v python3 || command -v python)"
 
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 
-echo "Kinema dev server on http://127.0.0.1:${PORT}  (Ctrl+C to stop)"
+echo "Kadmu dev server on http://127.0.0.1:${PORT}  (Ctrl+C to stop)"
 echo "Edit src/web/* -> just refresh the tab.  Edit src/server.py -> auto-restarts."
 
 cleanup() { [ -n "$PID" ] && kill "$PID" 2>/dev/null; exit 0; }

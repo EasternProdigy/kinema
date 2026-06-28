@@ -1,20 +1,20 @@
-# Kinema one-line installer for Windows.
+# Kadmu one-line installer for Windows.
 #
-#   irm https://raw.githubusercontent.com/EasternProdigy/kinema/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/EasternProdigy/kadmu/main/install.ps1 | iex
 #
 # Downloads the latest release (ffmpeg bundled — nothing else to install) and
 # launches it. Falls back to running from source with Python if no build exists.
 #
-# Env overrides: KINEMA_REPO, KINEMA_HOME (install dir).
+# Env overrides: KADMU_REPO, KADMU_HOME (install dir).
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:KINEMA_REPO) { $env:KINEMA_REPO } else { "EasternProdigy/kinema" }
-$Dest = if ($env:KINEMA_HOME) { $env:KINEMA_HOME } else { Join-Path $env:LOCALAPPDATA "Kinema" }
+$Repo = if ($env:KADMU_REPO) { $env:KADMU_REPO } else { "EasternProdigy/kadmu" }
+$Dest = if ($env:KADMU_HOME) { $env:KADMU_HOME } else { Join-Path $env:LOCALAPPDATA "Kadmu" }
 
-Write-Host "Kinema installer — finding the latest release of $Repo ..." -ForegroundColor Cyan
+Write-Host "Kadmu installer — finding the latest release of $Repo ..." -ForegroundColor Cyan
 try {
-  $rel   = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "kinema-installer" }
-  $asset = $rel.assets | Where-Object { $_.name -eq "kinema-windows.zip" } | Select-Object -First 1
+  $rel   = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "kadmu-installer" }
+  $asset = $rel.assets | Where-Object { $_.name -eq "kadmu-windows.zip" } | Select-Object -First 1
 } catch {
   $asset = $null
 }
@@ -22,14 +22,14 @@ try {
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
 
 if ($asset) {
-  $zip = Join-Path $env:TEMP "kinema.zip"
+  $zip = Join-Path $env:TEMP "kadmu.zip"
   Write-Host "Downloading $($asset.name) ..." -ForegroundColor Cyan
   Invoke-WebRequest $asset.browser_download_url -OutFile $zip
   Expand-Archive -Path $zip -DestinationPath $Dest -Force
   Remove-Item $zip
   Write-Host "Installed to $Dest" -ForegroundColor Green
-  Write-Host "Starting Kinema ..." -ForegroundColor Cyan
-  & (Join-Path $Dest "kinema.exe")
+  Write-Host "Starting Kadmu ..." -ForegroundColor Cyan
+  & (Join-Path $Dest "kadmu.exe")
 }
 else {
   Write-Host "No release binary found — falling back to source (needs Python 3)." -ForegroundColor Yellow
@@ -37,7 +37,7 @@ else {
   if (-not $py) { $py = Get-Command py -ErrorAction SilentlyContinue }
   if (-not $py) { throw "Python 3 is required. Install from https://www.python.org/downloads/ (tick 'Add to PATH')." }
 
-  $zip = Join-Path $env:TEMP "kinema-src.zip"
+  $zip = Join-Path $env:TEMP "kadmu-src.zip"
   Write-Host "Downloading source ..." -ForegroundColor Cyan
   Invoke-WebRequest "https://github.com/$Repo/archive/refs/heads/main.zip" -OutFile $zip
   Expand-Archive -Path $zip -DestinationPath $Dest -Force

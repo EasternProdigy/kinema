@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Generates a small, 100% royalty-free sample library using ffmpeg test patterns.
-# Used for the public demo (and for trying Kinema without your own files).
+# Used for the public demo (and for trying Kadmu without your own files).
 #   bash scripts/make-sample-library.sh [output-dir]
 set -e
 OUT="${1:-sample-library}"
-mkdir -p "$OUT/Kinema Demo Show/Season 1" "$OUT/Demo Movies"
+mkdir -p "$OUT/Kadmu Demo Show/Season 1" "$OUT/Demo Movies"
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "ffmpeg is required to generate sample clips."; exit 1
@@ -28,8 +28,8 @@ mk() {  # $1=video filter  $2=duration  $3=output
   echo "  created: $3"
 }
 
-mk "testsrc=size=854x480:rate=24"     12 "$OUT/Kinema Demo Show/Season 1/Episode 1 - Pilot.mp4"
-mk "testsrc2=size=854x480:rate=24"    10 "$OUT/Kinema Demo Show/Season 1/Episode 2 - The Reveal.mp4"
+mk "testsrc=size=854x480:rate=24"     12 "$OUT/Kadmu Demo Show/Season 1/Episode 1 - Pilot.mp4"
+mk "testsrc2=size=854x480:rate=24"    10 "$OUT/Kadmu Demo Show/Season 1/Episode 2 - The Reveal.mp4"
 mk "mandelbrot=size=854x480:rate=24"  15 "$OUT/Demo Movies/Fractal Voyage.mp4"
 mk "smptebars=size=854x480:rate=24"    8 "$OUT/Demo Movies/Color Bars Classic.mp4"
 

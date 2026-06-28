@@ -172,6 +172,7 @@ button { font-family: inherit; }
 
 /* Search box (top bar) */
 .search-box {
+  position: relative;
   display: inline-flex; align-items: center; gap: 7px; margin-right: 4px;
   background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px;
   padding: 0 8px; height: 36px; width: 210px; max-width: 38vw;
@@ -193,6 +194,74 @@ button { font-family: inherit; }
 .search-clear svg { width: 14px; height: 14px; }
 .search-clear:hover { color: var(--orange); background: var(--surface); }
 body.searching-mode .search-clear { display: grid; }
+.search-box.has-text .search-clear { display: grid; }
+
+/* Live type-ahead dropdown (anchored under the search box, opens leftward) */
+.search-dd {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
+  width: 440px; max-width: 92vw; max-height: min(70vh, 560px); overflow-y: auto;
+  padding: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  animation: sdd-in .12s ease;
+}
+.search-dd.hidden { display: none; }
+@keyframes sdd-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+.sdd-head {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ink-300); padding: 9px 10px 4px;
+}
+.sdd-head:not(:first-child) { border-top: 1px solid var(--line); margin-top: 4px; }
+
+.sdd-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 7px 9px; border-radius: 8px; cursor: pointer; color: var(--ink-900);
+}
+.sdd-item.active { background: rgba(238,103,34,.12); }
+
+.sdd-ic {
+  flex: none; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center;
+  background: var(--surface-2); color: var(--orange);
+}
+.sdd-ic svg { width: 20px; height: 20px; }
+
+.sdd-thumb {
+  flex: none; width: 56px; height: 34px; border-radius: 5px; overflow: hidden; position: relative;
+  background: var(--surface-2); display: grid; place-items: center;
+}
+.sdd-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.sdd-ph { color: var(--ink-300); display: grid; place-items: center; }
+.sdd-ph svg { width: 18px; height: 18px; }
+
+.sdd-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sdd-name {
+  font-size: 14px; font-weight: 600; line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sdd-name mark { background: rgba(238,103,34,.24); color: inherit; border-radius: 3px; padding: 0 1px; }
+.sdd-sub {
+  font-size: 12px; color: var(--ink-500);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.sdd-dur { flex: none; font-size: 12px; color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.sdd-tag { flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--ink-500); }
+.sdd-tag svg { width: 14px; height: 14px; }
+.sdd-tag.ok { color: var(--success); }
+
+.sdd-empty { padding: 18px 12px; color: var(--ink-500); font-size: 13px; text-align: center; }
+
+.sdd-all {
+  width: 100%; display: flex; align-items: center; gap: 8px; margin-top: 4px;
+  padding: 10px 11px; border: none; border-top: 1px solid var(--line); background: transparent;
+  color: var(--orange); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  border-radius: 0 0 8px 8px; text-align: left;
+}
+.sdd-all .sdd-all-ic { display: grid; place-items: center; }
+.sdd-all svg { width: 16px; height: 16px; }
+.sdd-all:hover, .sdd-all.active { background: rgba(238,103,34,.12); }
 
 /* ===================== Buttons ===================== */
 .btn {
@@ -239,8 +308,10 @@ body.searching-mode .search-clear { display: grid; }
 }
 
 .grid { display: grid; gap: var(--grid-gap); }
-.folder-grid { grid-template-columns: repeat(auto-fill, minmax(var(--folder-min), 1fr)); }
-.video-grid, .continue-grid { grid-template-columns: repeat(auto-fill, minmax(var(--video-min), 1fr)); }
+/* min(…, 100%) lets a track shrink below its preferred width on a narrow screen
+   instead of overflowing — this is what stops phones from scrolling sideways. */
+.folder-grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--folder-min), 100%), 1fr)); }
+.video-grid, .continue-grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--video-min), 100%), 1fr)); }
 
 /* Folder card */
 .folder-card {
@@ -494,6 +565,32 @@ input[type=range].seek { width: 100%; height: 6px; }
 .q-item.active { background: rgba(238,103,34,.12); }
 .q-item.active .q-label { color: var(--ember); }
 .q-item.active .q-check { opacity: 1; }
+
+/* ---------- subtitle settings (sync + look) inside the captions menu ---------- */
+#ccMenu { min-width: 252px; }
+.cc-sep { height: 1px; background: rgba(255,255,255,.1); margin: 7px 8px 3px; }
+.cc-row { display: flex; align-items: center; gap: 10px; padding: 5px 10px; }
+.cc-row-label { flex: none; width: 46px; font-size: 12.5px; font-weight: 600; color: #cdc7c0; }
+.cc-seg, .cc-sync { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+.cc-row .cc-seg-btn, .cc-row .cc-step {
+  min-width: 30px; height: 28px; padding: 0 8px; display: grid; place-items: center;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.11);
+  color: #e9e4df; border-radius: 7px; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; font-weight: 600; line-height: 1;
+  transition: background .12s ease, border-color .12s ease;
+}
+.cc-row .cc-seg-btn:hover, .cc-row .cc-step:hover { background: rgba(255,255,255,.13); }
+.cc-row .cc-seg-btn.active {
+  background: rgba(238,103,34,.18); border-color: rgba(245,131,47,.55); color: var(--ember);
+}
+.cc-row .cc-swatch::after {
+  content: ""; width: 15px; height: 15px; border-radius: 50%;
+  background: var(--sw); box-shadow: inset 0 0 0 1px rgba(0,0,0,.4);
+}
+.cc-sync-val {
+  min-width: 48px; text-align: center; font-size: 12.5px; font-weight: 600;
+  color: #e9e4df; font-variant-numeric: tabular-nums;
+}
 
 .pip-hint {
   position: absolute; top: 70px; right: 18px; z-index: 7; max-width: 300px;
@@ -889,3 +986,319 @@ input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border-radius: 
   padding: 9px 12px; border-radius: 6px; font-size: 14px; font-family: var(--font);
 }
 .net-auth-form input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px rgba(238,103,34,.15); }
+
+/* ============================================================================
+   Dark theme  (#7)
+   A warm-dark palette: the ink scale inverted in lightness but kept warm in hue,
+   so every var(--surface)/var(--text)/var(--line) consumer flips automatically.
+   It auto-applies on an OS dark preference (when no explicit choice is stored, so
+   there's no data-theme attribute); an explicit pick sets [data-theme] and wins.
+   The player stage is intentionally dark in both themes and needs no override.
+   Mirrors the dark tokens documented in docs/BRAND.md — keep the two in sync.
+   ============================================================================ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --ink-900: #f3ede7;  --ink-700: #d9d0c8;  --ink-500: #a59c93;
+    --ink-300: #786e66;  --ink-100: #352b24;
+    --paper:   #161210;  --sand:    #2a201a;
+    --surface: #1e1813;  --surface-2: #251e18;  --line: #34291f;
+    --shadow:    0 1px 2px rgba(0,0,0,.4);
+    --shadow-lg: 0 14px 38px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"] {
+  --ink-900: #f3ede7;  --ink-700: #d9d0c8;  --ink-500: #a59c93;
+  --ink-300: #786e66;  --ink-100: #352b24;
+  --paper:   #161210;  --sand:    #2a201a;
+  --surface: #1e1813;  --surface-2: #251e18;  --line: #34291f;
+  --shadow:    0 1px 2px rgba(0,0,0,.4);
+  --shadow-lg: 0 14px 38px rgba(0,0,0,.6);
+}
+/* film-slate thumbnails read a touch deeper against the dark chrome */
+:root[data-theme="dark"] .thumb { background-color: #181c22; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .thumb { background-color: #181c22; }
+}
+
+/* theme toggle icon button cycles auto → light → dark (top bar) */
+#themeBtn .ic-theme { display: grid; place-items: center; }
+#themeBtn svg { width: var(--icon-btn-svg); height: var(--icon-btn-svg); }
+
+/* ============================================================================
+   Accessibility  (#9)
+   ============================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+/* Visible focus ring for keyboard users only (mouse/touch clicks stay ring-free). */
+:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+/* On the dark player stage an orange ring on dark is low-contrast — use white. */
+.player-overlay :focus-visible { outline-color: #fff; }
+/* text inputs already draw their own orange focus glow; don't double up.
+   Range sliders (seek/volume) keep the ring so they stay keyboard-discoverable. */
+input:not([type=range]):focus-visible, textarea:focus-visible { outline: none; }
+
+/* ============================================================================
+   Touch targets & coarse pointers  (#13)
+   Enlarge small controls to the 44px minimum on touch devices without bloating
+   the desktop layout. Pointer-coarse = finger-driven.
+   ============================================================================ */
+@media (pointer: coarse) {
+  .search-clear { width: 44px; height: 44px; }
+  .icon-btn { width: 44px; height: 44px; }
+  .ctrl { min-width: 44px; min-height: 44px; height: 44px; }
+  .icon-round { width: 46px; height: 46px; }
+  .queue-collapse, .next-x { width: 40px; height: 40px; }
+  .mylist-btn { width: 38px; height: 38px; }
+  .check { width: 30px; height: 30px; }
+  .card-dismiss { width: 34px; height: 34px; }
+  .breadcrumb .crumb { padding: 8px 9px; }
+  .menu button, .ctx-menu button, .q-item, .sdd-item { min-height: 44px; }
+}
+
+/* ============================================================================
+   Responsive breakpoints  (#8)
+   ============================================================================ */
+.breadcrumb { min-width: 0; }   /* let it shrink + scroll instead of pushing actions off-screen */
+
+@media (max-width: 1200px) {
+  .library { padding-left: 18px; padding-right: 18px; }
+}
+@media (max-width: 768px) {
+  .library { padding: 18px 14px 80px; }
+  .row-section { margin-bottom: 26px; }
+  .topbar { gap: 10px; padding: var(--tb-pad-y) 12px; }
+  .breadcrumb { font-size: 13px; }
+  .search-box { width: 160px; max-width: 44vw; }
+  .search-box:focus-within { width: 200px; }
+  .modal { padding: 12px; }
+  .modal-card, .modal-card.small, .settings-card { max-width: 100%; }
+  .settings-body { max-height: 78vh; }
+  .modal-body { max-height: 72vh; }
+  /* trim the player's secondary controls; double-tap gestures cover seek */
+  .player-ui { padding: 50px 14px 14px; }
+  .player-controls { gap: 4px; }
+  #back10, #fwd10 { display: none; }
+  .next-card { width: auto; left: 14px; right: 14px; bottom: 110px; }
+  .pip-hint { left: 14px; right: 14px; max-width: none; }
+}
+@media (max-width: 480px) {
+  .topbar { gap: 8px; }
+  .topbar-actions { gap: 4px; }
+  .size-toggle { display: none; }          /* reclaim space; size still set in storage */
+  .brand .brand-word { display: none; }    /* keep just the tile on tiny screens */
+  .search-box { width: 130px; }
+  .search-box:focus-within { width: 160px; }
+  .lib-toolbar { flex-wrap: wrap; }
+  .player-title { font-size: 14px; }
+  #prevBtn, #nextBtn { display: none; }    /* use the episodes rail / gestures */
+}
+
+/* ============================================================================
+   Library toolbar: sort + filter + view toggle  (#11)
+   ============================================================================ */
+.lib-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 20px;
+}
+.lib-toolbar .grow { flex: 1; min-width: 0; }
+.lib-select {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; font-size: 13px; font-weight: 500; color: var(--ink-900);
+  background: var(--surface) ; border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 28px 7px 11px; cursor: pointer; height: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236f655d' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center;
+}
+.lib-select:hover { border-color: var(--orange); }
+.lib-select:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.filter-chips { display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 3px; height: 36px; }
+.chip {
+  border: none; background: transparent; color: var(--ink-500); cursor: pointer;
+  font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1;
+  padding: 0 11px; height: 100%; border-radius: 6px; display: grid; place-items: center;
+  transition: background .14s ease, color .14s ease;
+}
+.chip:hover:not(.active) { color: var(--ink-900); background: rgba(238,103,34,.10); }
+.chip.active { background: var(--surface); color: var(--orange); box-shadow: 0 1px 3px rgba(33,25,21,.16); }
+.view-toggle { display: inline-flex; gap: 2px; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 9px; padding: 3px; height: 36px; }
+.view-btn { border: none; background: transparent; color: var(--ink-500); cursor: pointer;
+  width: 34px; height: 100%; border-radius: 6px; display: grid; place-items: center; }
+.view-btn svg { width: 18px; height: 18px; }
+.view-btn:hover:not(.active) { color: var(--ink-900); background: rgba(238,103,34,.10); }
+.view-btn.active { background: var(--surface); color: var(--orange); box-shadow: 0 1px 3px rgba(33,25,21,.16); }
+
+/* ---- list view: cards become full-width rows ---- */
+body.view-list .folder-grid,
+body.view-list .video-grid,
+body.view-list .continue-grid,
+body.view-list .mylist-grid { grid-template-columns: 1fr; gap: 8px; }
+body.view-list .video-card {
+  display: grid; grid-template-columns: clamp(120px, 26vw, 168px) 1fr; align-items: center;
+}
+body.view-list .video-card .thumb { aspect-ratio: 16/9; }
+body.view-list .video-card .vcard-foot {
+  display: flex; flex-direction: column; justify-content: center; padding: 10px 14px;
+}
+body.view-list .video-card .vcard-name { -webkit-line-clamp: 2; }
+
+/* ============================================================================
+   Folder cover art  (#12)
+   The folder tile shows a poster (poster/folder/cover image, or the first
+   episode's thumbnail) when one exists, falling back to the folder glyph.
+   ============================================================================ */
+.folder-ic { position: relative; overflow: hidden; }
+.folder-ic .cover {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; transition: opacity .25s ease; background: var(--sand);
+}
+.folder-ic.has-cover .cover { opacity: 1; }
+.folder-ic.has-cover > svg { opacity: 0; }   /* hide the glyph once the poster loads */
+body.view-list .folder-ic { border-radius: var(--radius); }
+
+/* ============================================================================
+   Card actions: dismiss a Continue-watching card  (#10)
+   ============================================================================ */
+.card-dismiss {
+  position: absolute; right: 7px; top: 7px; z-index: 5; width: 28px; height: 28px;
+  border-radius: 50%; border: 1px solid rgba(255,255,255,.7);
+  background: rgba(20,16,13,.62); color: #fff; cursor: pointer;
+  display: grid; place-items: center; opacity: 0;
+  transition: opacity .12s ease, background .12s ease, transform .08s ease;
+}
+.card-dismiss svg { width: 15px; height: 15px; }
+.card-dismiss:hover { background: var(--error); border-color: transparent; transform: scale(1.08); }
+.video-card:hover .card-dismiss { opacity: 1; }
+@media (pointer: coarse) { .video-card .card-dismiss { opacity: 1; } }
+
+/* player gesture feedback (double-tap seek / swipe scrub) (#13) */
+.gesture-flash {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 7; padding: 10px 16px; border-radius: 10px;
+  background: rgba(8,8,10,.66); color: #fff;
+  font: 600 15px/1 var(--font); font-variant-numeric: tabular-nums;
+  pointer-events: none; opacity: 0; transition: opacity .12s ease;
+}
+.gesture-flash.show { opacity: 1; }
+/* ===================== Storyboard scrub preview + chapter ticks ===================== */
+.seek-wrap.sb-on .seek-tip { opacity: 0; }     /* the rich sprite preview replaces the bubble */
+
+.sb-preview {
+  position: absolute; bottom: 26px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center;
+  background: rgba(13,15,18,.96); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 8px; padding: 4px; pointer-events: none; opacity: 0;
+  transition: opacity .12s ease; box-shadow: 0 10px 28px rgba(0,0,0,.55); z-index: 5;
+}
+.seek-wrap.scrubbing.sb-on .sb-preview { opacity: 1; }
+.sb-img { border-radius: 4px; background-repeat: no-repeat; background-color: #000; }
+.sb-chap {
+  max-width: 220px; margin-top: 5px; color: #fff; font-size: 11.5px; font-weight: 600;
+  text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sb-chap.hidden { display: none; }
+.sb-time {
+  margin-top: 2px; color: #cfc7bf; font-family: var(--mono);
+  font-variant-numeric: tabular-nums; font-size: 11.5px;
+}
+
+.chapter-ticks {
+  position: absolute; left: 0; right: 0; top: 50%; height: 6px;
+  transform: translateY(-50%); pointer-events: none; z-index: 3;
+}
+.chapter-tick {
+  position: absolute; top: -1px; width: 2px; height: 8px; transform: translateX(-1px);
+  background: rgba(255,255,255,.72); border-radius: 1px; box-shadow: 0 0 2px rgba(0,0,0,.5);
+}
+.chapters-menu { max-height: 320px; overflow-y: auto; }
+
+/* ===================== Viewer profiles (opt-in) ===================== */
+.profile-btn { padding: 0; }
+.profile-ava {
+  width: 26px; height: 26px; border-radius: 50%; background: var(--grad); color: #fff;
+  display: grid; place-items: center; font-weight: 700; font-size: 13px; line-height: 1;
+  box-shadow: 0 2px 8px rgba(234,92,32,.35);
+}
+.profile-overlay {
+  position: fixed; inset: 0; z-index: 120; display: grid; place-items: center;
+  background: rgba(20,15,12,.72); backdrop-filter: blur(6px);
+}
+.profile-overlay.hidden { display: none; }
+.profile-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow-lg); padding: 28px 30px; width: min(560px, 92vw);
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+}
+.profile-h { margin: 6px 0 0; font-size: 22px; color: var(--ink-900); font-weight: 700; }
+.profile-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; margin: 16px 0 4px; }
+.profile-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer; padding: 8px; border-radius: 12px;
+  color: var(--ink-700); font: inherit; transition: transform .1s ease, background .12s ease;
+}
+.profile-tile:hover { background: var(--surface-2); transform: translateY(-2px); }
+.profile-ava.big { width: 72px; height: 72px; font-size: 30px; border-radius: 16px; }
+.profile-tile.current .profile-ava.big { outline: 3px solid var(--orange); outline-offset: 2px; }
+.profile-name {
+  max-width: 110px; font-size: 14px; font-weight: 600; color: var(--ink-900);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.profile-add { display: flex; gap: 8px; width: 100%; margin-top: 12px; }
+.profile-add input {
+  flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  font: inherit; font-size: 14px; background: var(--surface-2); color: var(--ink-900);
+}
+.profile-add input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px rgba(238,103,34,.15); }
+
+/* ===================== Keyboard shortcuts overlay + grouped lists ===================== */
+.shortcuts-card { width: min(780px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+.shortcuts-title { display: flex; align-items: center; gap: 9px; }
+.shortcuts-title .section-ic { color: var(--orange); }
+#shortcutsBody { overflow-y: auto; }
+@media (min-width: 620px) {
+  #shortcutsBody { column-count: 2; column-gap: 30px; }
+}
+.kbd-group { margin-bottom: 16px; break-inside: avoid; }
+.kbd-group:last-child { margin-bottom: 0; }
+.kbd-group-title {
+  margin: 0 0 8px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--orange);
+}
+.kbd-groups .kbd-grid { grid-template-columns: 1fr; gap: 7px 0; margin-bottom: 0; }
+
+/* "Show pressed keys" preference toggle */
+.pref-toggle { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0 16px; cursor: pointer; font-size: 13.5px; color: var(--ink-700); }
+.pref-toggle input { margin-top: 2px; width: 16px; height: 16px; accent-color: var(--orange); cursor: pointer; flex: none; }
+
+/* ===================== Key-press HUD (center flash) ===================== */
+.key-hud {
+  position: fixed; top: 50%; left: 50%; z-index: 9999;
+  display: flex; align-items: center; gap: 8px;
+  padding: 13px 18px; border-radius: 14px;
+  background: rgba(13,15,18,.82); box-shadow: 0 14px 44px rgba(0,0,0,.5);
+  opacity: 0; pointer-events: none; transform: translate(-50%,-50%) scale(.8);
+}
+.key-hud.show { animation: keyhud-pop .76s cubic-bezier(.2,.8,.3,1) forwards; }
+@keyframes keyhud-pop {
+  0%   { opacity: 0; transform: translate(-50%,-50%) scale(.78); }
+  14%  { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  68%  { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%,-50%) scale(1.05); }
+}
+.key-hud kbd {
+  font-family: var(--mono); font-size: 22px; font-weight: 600; line-height: 1; color: #fff;
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.28);
+  border-bottom-width: 3px; border-radius: 8px; padding: 9px 14px; min-width: 18px; text-align: center;
+}
+.key-hud .kh-plus { color: #cfc7bf; font-size: 18px; font-weight: 600; }

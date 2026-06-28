@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Kinema are documented here.
+All notable changes to Kadmu are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
@@ -23,18 +23,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   (remux + quality copies) every minute, deleting files you're no longer watching
   so it stays to roughly just the current video — the file streaming now (and the
   most recent one) is always kept, so pausing is safe. A size cap is the backstop.
-  Tune with `KINEMA_CACHE_TTL_SEC` (idle seconds before cleanup, default 300) and
-  `KINEMA_CACHE_LIMIT_MB` (hard size cap, default 2048; `512` for a small laptop).
+  Tune with `KADMU_CACHE_TTL_SEC` (idle seconds before cleanup, default 300) and
+  `KADMU_CACHE_LIMIT_MB` (hard size cap, default 2048; `512` for a small laptop).
 - **One-line installers**: `install.sh` (macOS/Linux, `curl | bash`) and `install.ps1`
   (Windows, `irm | iex`) fetch the latest release (ffmpeg bundled) and launch it, with a
   source fallback when no release binary exists.
-- **Idempotent launch.** Starting Kinema while it's already running just opens a new browser
+- **Idempotent launch.** Starting Kadmu while it's already running just opens a new browser
   tab (preferring Firefox) instead of erroring on the busy port — so double-clicking the app
-  again, or re-running the `kinema` command, always Just Works.
+  again, or re-running the `kadmu` command, always Just Works.
 - **Desktop app, your way.** Opt-in desktop-icon installers for Linux / macOS / Windows
-  (`launchers/install-linux.sh`, `install-macos.sh` which builds a real `Kinema.app`, and
+  (`launchers/install-linux.sh`, `install-macos.sh` which builds a real `Kadmu.app`, and
   `install-windows.ps1`). The icon opens a normal Firefox tab by default, or a dedicated
-  **app window** (`--app`) or fullscreen **kiosk** (`--kiosk`) — also via `KINEMA_LAUNCH_MODE`.
+  **app window** (`--app`) or fullscreen **kiosk** (`--kiosk`) — also via `KADMU_LAUNCH_MODE`.
   Launchers now work from either a source checkout or a release binary.
 
 ### Changed
@@ -62,11 +62,11 @@ First public release. 🎬
 - **Read-only / kiosk mode** (`--read-only`) for shared and demo instances.
 - Cross-platform double-click launchers (Linux/macOS/Windows) + Linux menu installer.
 - **`--demo` mode**: auto-generates royalty-free sample videos and serves them
-  read-only — try Kinema instantly with no files. One-click `demo.sh` /
-  `Kinema Demo.command` / `Kinema Demo.bat`, and a ready-to-host Docker demo.
+  read-only — try Kadmu instantly with no files. One-click `demo.sh` /
+  `Kadmu Demo.command` / `Kadmu Demo.bat`, and a ready-to-host Docker demo.
 - **Bundled ffmpeg**: release builds ship a static ffmpeg/ffprobe so thumbnails work
-  with zero install. From source, Kinema finds ffmpeg on `PATH` or via
-  `KINEMA_FFMPEG`/`KINEMA_FFPROBE`. See [NOTICE.md](NOTICE.md).
+  with zero install. From source, Kadmu finds ffmpeg on `PATH` or via
+  `KADMU_FFMPEG`/`KADMU_FFPROBE`. See [NOTICE.md](NOTICE.md).
 
 ### Security
 - Host allow-listing + Origin/Referer checks (CSRF & DNS-rebinding protection).

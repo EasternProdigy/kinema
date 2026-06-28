@@ -1,10 +1,10 @@
 @echo off
-REM Kinema launcher for Windows. Double-click to start.
-REM Works as a source checkout (src\server.py) or a release bundle (kinema.exe).
-REM Passes any arguments through, e.g.:  Kinema.bat --app
+REM Kadmu launcher for Windows. Double-click to start.
+REM Works as a source checkout (src\server.py) or a release bundle (kadmu.exe).
+REM Passes any arguments through, e.g.:  Kadmu.bat --app
 cd /d "%~dp0\.."
 
-if exist "kinema.exe" ( "kinema.exe" %* & goto :eof )
+if exist "kadmu.exe" ( "kadmu.exe" %* & goto :eof )
 
 if exist "src\server.py" (
   where python >nul 2>nul && ( python src\server.py %* & goto :eof )
@@ -15,5 +15,5 @@ if exist "src\server.py" (
   goto :eof
 )
 
-echo Could not find Kinema ^(neither src\server.py nor kinema.exe^).
+echo Could not find Kadmu ^(neither src\server.py nor kadmu.exe^).
 pause

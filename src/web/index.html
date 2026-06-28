@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kinema</title>
+  <title>Kadmu</title>
   <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml" />
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -17,7 +17,7 @@
             <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
           </svg>
         </span>
-        <span>kinema</span>
+        <span>kadmu</span>
       </div>
       <p class="muted">This library is password-protected.</p>
       <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
@@ -25,15 +25,37 @@
       <div class="login-error" id="loginError"></div>
     </form>
   </div>
+
+  <!-- ===== Profile chooser (only when --profiles is on) ===== -->
+  <div id="profileOverlay" class="profile-overlay hidden">
+    <div class="profile-card">
+      <div class="login-brand">
+        <span class="brand-tile">
+          <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+            <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
+          </svg>
+        </span>
+        <span>kadmu</span>
+      </div>
+      <h2 class="profile-h">Who's watching?</h2>
+      <p class="muted small">Each profile keeps its own resume points and My List.</p>
+      <div class="profile-grid" id="profileGrid"></div>
+      <form class="profile-add" id="profileAddForm">
+        <input type="text" id="profileNewName" placeholder="Add a profile…" maxlength="40"
+               autocomplete="off" spellcheck="false" aria-label="New profile name" />
+        <button class="btn" type="submit" data-icon-prefix="plus">Add</button>
+      </form>
+    </div>
+  </div>
   <!-- ===== Top bar ===== -->
   <header class="topbar">
-    <div class="brand" id="brand" title="Kinema — by Pentarosa Co.">
+    <div class="brand" id="brand" title="Kadmu — by Pentarosa Co.">
       <span class="brand-tile">
         <svg viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
           <path d="M26 21.5v21l18-10.5z" fill="#fff"/>
         </svg>
       </span>
-      <span class="brand-word">kinema</span>
+      <span class="brand-word">kadmu</span>
     </div>
 
     <nav class="breadcrumb" id="breadcrumb"></nav>
@@ -44,15 +66,19 @@
         <input type="search" id="searchInput" placeholder="Search titles…" autocomplete="off"
                spellcheck="false" aria-label="Search your library" />
         <button class="search-clear" id="searchClear" data-icon="close" title="Clear search" aria-label="Clear search"></button>
+        <div class="search-dd hidden" id="searchDropdown" role="listbox" aria-label="Search suggestions"></div>
       </div>
       <div class="size-toggle" id="sizeToggle" role="group" aria-label="Icon size">
         <button class="size-btn" data-size="small" title="Small icons">S</button>
         <button class="size-btn" data-size="medium" title="Medium icons">M</button>
         <button class="size-btn" data-size="large" title="Large icons">L</button>
       </div>
+      <button class="icon-btn profile-btn hidden" id="profileBtn" title="Switch profile" aria-label="Switch profile"><span class="profile-ava" id="profileAva">?</span></button>
+      <button class="icon-btn" id="themeBtn" title="Theme" aria-label="Toggle light / dark theme"></button>
       <button class="icon-btn" id="refreshBtn" title="Refresh">
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v4h-4" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
+      <button class="icon-btn" id="shortcutsBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" data-icon="keyboard"></button>
       <button class="icon-btn" id="settingsBtn" title="Settings">
         <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
@@ -73,6 +99,27 @@
       <h2 class="row-title">My List</h2>
       <div class="grid folder-grid" id="mylistGrid"></div>
     </section>
+
+    <div id="libToolbar" class="lib-toolbar hidden">
+      <select id="sortSelect" class="lib-select" aria-label="Sort by">
+        <option value="name">Name</option>
+        <option value="recent">Recently added</option>
+        <option value="date">Date modified</option>
+        <option value="size">Largest</option>
+        <option value="duration">Longest</option>
+      </select>
+      <div class="filter-chips" id="filterChips" role="group" aria-label="Filter">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="unwatched">Unwatched</button>
+        <button class="chip" data-filter="watched">Watched</button>
+        <button class="chip" data-filter="playable">Playable</button>
+      </div>
+      <span class="grow"></span>
+      <div class="view-toggle" id="viewToggle" role="group" aria-label="View">
+        <button class="view-btn active" data-view="grid" data-icon="gridView" title="Grid view" aria-label="Grid view"></button>
+        <button class="view-btn" data-view="list" data-icon="listView" title="List view" aria-label="List view"></button>
+      </div>
+    </div>
 
     <section id="folderSection" class="row-section hidden">
       <h2 class="row-title" id="foldersTitle">Folders</h2>
@@ -108,6 +155,12 @@
         <div class="seek-row">
           <span class="time" id="timeCur">0:00</span>
           <div class="seek-wrap" id="seekWrap">
+            <div class="chapter-ticks" id="chapterTicks" aria-hidden="true"></div>
+            <div class="sb-preview" id="sbPreview">
+              <div class="sb-img" id="sbImg"></div>
+              <span class="sb-chap" id="sbChap"></span>
+              <span class="sb-time" id="sbTime">0:00</span>
+            </div>
             <span class="seek-tip" id="seekTip">0:00</span>
             <input type="range" id="seek" class="seek" min="0" max="1000" value="0" step="1" aria-label="Seek" />
           </div>
@@ -145,12 +198,24 @@
               <button class="ctrl label" id="qualityBtn" title="Video quality">Auto</button>
               <div class="menu hidden" id="qualityMenu"></div>
             </div>
+            <div class="menu-wrap hidden" id="audioWrap">
+              <button class="ctrl" id="audioBtn" data-icon="audio" title="Audio track"></button>
+              <div class="menu hidden" id="audioMenu"></div>
+            </div>
             <div class="menu-wrap hidden" id="ccWrap">
               <button class="ctrl" id="ccBtn" data-icon="cc" title="Subtitles / captions (C)"></button>
               <div class="menu hidden" id="ccMenu"></div>
             </div>
+            <div class="menu-wrap hidden" id="chaptersWrap">
+              <button class="ctrl" id="chaptersBtn" data-icon="chapters" title="Chapters"></button>
+              <div class="menu hidden" id="chaptersMenu"></div>
+            </div>
             <button class="ctrl" id="loopBtn" data-icon="loop" title="Loop (L)"></button>
             <button class="ctrl" id="autoNext" data-icon="autoplay" title="Autoplay next episode"></button>
+            <div class="menu-wrap" id="sleepWrap">
+              <button class="ctrl" id="sleepBtn" data-icon="timer" title="Sleep timer"></button>
+              <div class="menu hidden" id="sleepMenu"></div>
+            </div>
             <button class="ctrl" id="pipBtn" data-icon="pip" title="Picture-in-Picture (P)"></button>
             <button class="ctrl" id="fsBtn" data-icon="fullscreen" title="Fullscreen (F)"></button>
           </div>
@@ -202,7 +267,7 @@
           <span class="settings-tile" data-icon="cog" aria-hidden="true"></span>
           <div>
             <h3>Settings</h3>
-            <p class="settings-sub">Kinema <span id="settingsVersion">1.0.0</span> · by Pentarosa Co.</p>
+            <p class="settings-sub">Kadmu <span id="settingsVersion">1.0.0</span> · by Pentarosa Co.</p>
           </div>
         </div>
         <button class="settings-x" id="settingsClose" data-icon="close" title="Close (Esc)" aria-label="Close settings"></button>
@@ -215,7 +280,7 @@
             <span class="section-ic" data-icon="folder" aria-hidden="true"></span>
             <div class="section-head-text">
               <h4>Library folders</h4>
-              <p class="muted small">The folders Kinema watches. Everything stays on your machine.</p>
+              <p class="muted small">The folders Kadmu watches. Everything stays on your machine.</p>
             </div>
             <span class="section-count" id="rootCount"></span>
           </div>
@@ -264,27 +329,35 @@
             <span class="section-ic" data-icon="keyboard" aria-hidden="true"></span>
             <div class="section-head-text">
               <h4>Keyboard shortcuts</h4>
-              <p class="muted small">While a video is playing.</p>
+              <p class="muted small">Most work while a video is playing. Press <kbd>?</kbd> anytime to see this list.</p>
             </div>
           </div>
-          <div class="kbd-grid">
-            <div class="kbd-row"><span class="keys"><kbd>Space</kbd></span><span class="kbd-act">Play / pause</span></div>
-            <div class="kbd-row"><span class="keys"><kbd>←</kbd><kbd>→</kbd></span><span class="kbd-act">Seek 10 seconds</span></div>
-            <div class="kbd-row"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="kbd-act">Volume</span></div>
-            <div class="kbd-row"><span class="keys"><kbd>F</kbd></span><span class="kbd-act">Fullscreen</span></div>
-            <div class="kbd-row"><span class="keys"><kbd>M</kbd></span><span class="kbd-act">Mute</span></div>
-            <div class="kbd-row"><span class="keys"><kbd>L</kbd></span><span class="kbd-act">Loop</span></div>
-            <div class="kbd-row"><span class="keys"><kbd>P</kbd></span><span class="kbd-act">Picture-in-Picture</span></div>
-            <div class="kbd-row"><span class="keys"><kbd>Shift</kbd><kbd>N</kbd></span><span class="kbd-act">Next episode</span></div>
-            <div class="kbd-row"><span class="keys"><kbd>Shift</kbd><kbd>P</kbd></span><span class="kbd-act">Previous episode</span></div>
-          </div>
+          <label class="pref-toggle" for="keyHudToggle">
+            <input type="checkbox" id="keyHudToggle" checked />
+            <span>Show pressed keys on screen <span class="muted small">— a quick flash in the center each time you use a shortcut</span></span>
+          </label>
+          <div id="settingsKbd" class="kbd-groups"></div>
           <ul class="tips muted small">
+            <li><b>Scrub previews:</b> hover the seek bar to preview frames; chapter markers show as ticks you can jump between.</li>
+            <li><b>Audio &amp; subtitles:</b> pick embedded tracks from the <b>audio</b> and <b>CC</b> buttons in the control bar.</li>
+            <li><b>Sleep timer:</b> the moon-clock button can stop playback after this episode or a set time.</li>
             <li><b>Firefox PiP:</b> hover the playing video and click Firefox's own picture-in-picture toggle, or use the <b>⧉ PiP</b> button / press <b>P</b>.</li>
             <li><b>Resume:</b> your position is saved automatically and synced across tabs.</li>
             <li>Non-MP4/WebM files are remuxed on the fly when ffmpeg is available.</li>
           </ul>
         </section>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== Keyboard shortcuts reference ===== -->
+  <div id="shortcutsModal" class="modal hidden">
+    <div class="modal-card shortcuts-card">
+      <div class="modal-head">
+        <h3 class="shortcuts-title"><span class="section-ic" data-icon="keyboard" aria-hidden="true"></span> Keyboard shortcuts</h3>
+        <button class="icon-btn" id="shortcutsClose" data-icon="close" title="Close (Esc)" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="shortcutsBody"></div>
     </div>
   </div>
 
@@ -308,6 +381,9 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
+
+  <!-- ===== Key-press HUD (quick center flash of the pressed shortcut) ===== -->
+  <div id="keyHud" class="key-hud" aria-hidden="true"></div>
 
   <script src="/qr.js"></script>
   <script src="/app.js"></script>

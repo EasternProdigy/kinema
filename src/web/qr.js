@@ -1,11 +1,11 @@
 "use strict";
 /* Tiny dependency-free QR encoder — byte mode, error-correction level M,
    versions 1–6 (enough for any LAN URL). Renders a crisp SVG. No CDN, no build
-   step; bundled like everything else in Kinema. The module placement mirrors the
+   step; bundled like everything else in Kadmu. The module placement mirrors the
    ISO/IEC 18004 layout (verified module-for-module against a reference encoder
    and round-tripped through a decoder). Public API:
-       KinemaQR.svg(text, {quiet, dark, light})  -> SVG string
-       KinemaQR.matrix(text, forcedMask?)         -> boolean[][]  (used by tests) */
+       KadmuQR.svg(text, {quiet, dark, light})  -> SVG string
+       KadmuQR.matrix(text, forcedMask?)         -> boolean[][]  (used by tests) */
 (function () {
   const EXP = new Array(256), LOG = new Array(256);
   (function () { let x = 1; for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; } })();
@@ -226,5 +226,5 @@
 
   const api = { svg, matrix };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-  globalThis.KinemaQR = api;
+  globalThis.KadmuQR = api;
 })();

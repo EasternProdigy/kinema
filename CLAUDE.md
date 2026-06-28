@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**Kinema** — a self-hosted "personal cinema in a browser tab." Point it at folders of
+**Kadmu** — a self-hosted "personal cinema in a browser tab." Point it at folders of
 videos and watch them in the browser with thumbnails, resume, autoplay, and Firefox
 Picture-in-Picture; optionally stream across the LAN. MIT licensed, by Pentarosa Co.
 
@@ -17,7 +17,7 @@ containers — the app still runs (minus those features) without them.
 ## Repository layout
 
 ```
-kinema/
+kadmu/
 ├─ src/            server.py + web/  (the entire application)
 ├─ scripts/        run.sh · dev.sh · demo.sh · make-sample-library.sh
 ├─ launchers/      double-click launchers (Linux/macOS/Windows) + install-linux.sh
@@ -54,10 +54,10 @@ bash scripts/make-sample-library.sh [out-dir]   # just generate the sample tree
 # Checks (this is the entire CI gate — see .github/workflows/ci.yml)
 python3 -m py_compile src/server.py # backend syntax
 node --check src/web/app.js         # frontend syntax
-# CI also boots the server and asserts GET /api/session returns "app": "Kinema"
+# CI also boots the server and asserts GET /api/session returns "app": "Kadmu"
 
 # Release bundles (normally only via tag push, see .github/workflows/release.yml)
-pyinstaller --onefile --name kinema --add-data "src/web:web" \
+pyinstaller --onefile --name kadmu --add-data "src/web:web" \
   --add-binary "<ffmpeg>:." --add-binary "<ffprobe>:." src/server.py
 
 # Public read-only demo image (build context MUST be the project root)
@@ -80,11 +80,11 @@ passes through one **security gate** before any work happens:
 1. **Host allow-listing** (`host_allowed`) — blocks DNS-rebinding. Only localhost + the
    machine's own names/IPs are allowed; real private LAN IPs are allowed only in `--lan` mode.
 2. **CSRF check** for mutating requests (`_origin_ok`) — requires a positive same-site signal:
-   the custom `X-Kinema` header (which the frontend sets on every `api()` call and a cross-site
+   the custom `X-Kadmu` header (which the frontend sets on every `api()` call and a cross-site
    page cannot add without a CORS preflight the server never grants), or a same-site
    `Origin`/`Referer`.
 3. **Auth** (`_authed`) — if a password is set, all routes except `PUBLIC_ROUTES` require a
-   valid `kinema_session` cookie.
+   valid `kadmu_session` cookie.
 
 Mutating library routes additionally call `_require_writable()` (rejects in `--read-only`).
 
@@ -93,7 +93,7 @@ client must go through `resolve_within_roots()` (resolves symlinks/`..` and conf
 target is inside a configured root) before use. `owning_root()` finds which root a path
 belongs to. Never touch a client-supplied path without one of these — this is what prevents
 path traversal. File mutations live in `op_rename` / `op_move` / `op_mkdir` / `op_delete`
-(delete is a reversible move into a per-root `.kinema-trash`, never `rm`).
+(delete is a reversible move into a per-root `.kadmu-trash`, never `rm`).
 
 **Playback pipeline.** Native containers (`NATIVE_EXTS`: mp4/webm/mov/…) are range-streamed
 directly by `_serve_file_with_range` — manual HTTP Range (status 206, `Content-Range`, suffix
@@ -115,12 +115,12 @@ The cache key for thumbnails/metadata/remux is `path | mtime_ns | size`, so edit
 auto-invalidate. Concurrency is guarded by module-level locks (`_io_lock`, `_meta_lock`,
 per-key locks) and a `Semaphore` cap on simultaneous ffmpeg processes (anti fork-bomb).
 
-**ffmpeg discovery** (`_find_tool`): explicit env override (`KINEMA_FFMPEG`/`KINEMA_FFPROBE`)
+**ffmpeg discovery** (`_find_tool`): explicit env override (`KADMU_FFMPEG`/`KADMU_FFPROBE`)
 → bundled binary near the executable or at the project root (`./`, `./bin`, `./ffmpeg`, plus
 the PyInstaller `_MEIPASS` dir) → `PATH`. Everything ffmpeg-dependent degrades gracefully.
 
 **Frozen vs. source mode.** When running as a PyInstaller bundle (`sys.frozen`), web assets
-are read from the temp extract dir (`_MEIPASS`) and `STATE_DIR` is `~/.kinema`. From source,
+are read from the temp extract dir (`_MEIPASS`) and `STATE_DIR` is `~/.kadmu`. From source,
 `WEB_DIR = src/web` and `STATE_DIR = APP_DIR.parent` (the repo root) — see the path invariant
 above.
 
@@ -129,7 +129,7 @@ above.
 - [src/web/index.html](src/web/index.html) — the entire DOM up front (library view, player
   overlay, settings modal, generic dialog, login overlay), toggled via `.hidden`. Single-page app.
 - [src/web/app.js](src/web/app.js) — vanilla JS, one `state` object, no framework. All server
-  calls go through the `api()` helper (injects the `X-Kinema` CSRF header; on 401 with `needAuth`
+  calls go through the `api()` helper (injects the `X-Kadmu` CSRF header; on 401 with `needAuth`
   it pops the login overlay). The UI is gated by `/api/session` flags (`canManage`, `canBrowse`,
   `readonly`, `nativePicker`, `ffmpeg`) from `_session_state()` — the backend is the authority
   on capabilities; the frontend only reflects them. Thumbnails load lazily via an
@@ -139,12 +139,27 @@ above.
 
 ### API surface (all under `/api/`)
 
-GET: `session`, `config`, `library?path=`, `browse?path=`, `meta?path=`, `thumb?path=`,
-`stream?path=` (Range + remux), `progress`, `continue`, `playlists`.
-POST: `login`, `logout`, `progress`, `progress/clear`, `config`, `playlists`, `pick-folder`
-(native OS dialog on the server desktop), `add-paths` (drag-and-drop), `op` (rename/move/
-mkdir/delete). Static files (`/`, `/app.js`, `/style.css`, `/favicon.svg`) are served by
-`_serve_static`; the app shell also carries the strict `CSP`.
+GET: `session`, `config`, `library?path=`, `browse?path=`, `meta?path=` (also returns the
+file's `audios`/`subs` track lists), `thumb?path=`, `stream?path=` (Range + remux; optional
+`audio=` ordinal selects an audio track), `transcode?path=&height=` (optional `audio=`),
+`progress`, `continue`, `search?q=` (served from the background index — see below),
+`subs?path=` (sidecar + embedded subtitle tracks), `sub?path=` (sidecar VTT, or `&track=N`
+to extract an embedded text track), `mylist`, `playlists`, `trash` (item count + bytes).
+POST: `login`, `logout`, `progress`, `progress/clear`, `mylist`, `lan`, `password`, `config`,
+`playlists`, `pick-folder` (native OS dialog on the server desktop), `add-paths`
+(drag-and-drop), `op` (rename/move/mkdir/delete/empty-trash). Static files (`/`, `/app.js`,
+`/style.css`, `/favicon.svg`) are served by `_serve_static`; the app shell also carries the
+strict `CSP`.
+
+**Background library index.** A daemon thread (`start_indexer` → `_indexer_loop`) walks every
+root and builds an in-memory catalog of folders + video files; `search_library` ranks against
+it (`_search_indexed`) for instant, complete results, falling back to a bounded live walk
+(`_search_live`) only until the first build finishes. It re-walks every `INDEX_REFRESH` seconds
+(picks up files added outside the app) and rebuilds immediately on any library mutation
+(`request_reindex`, called from the `config`/`add-paths`/`op` routes). Resume positions live in
+an in-memory single-writer cache too (`load_progress`/`set_progress`/`clear_progress`), not
+re-read from disk per request. Reversible deletes (`.kadmu-trash`) are reaped by the cache
+janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
 
 ## Conventions & constraints
 
@@ -152,7 +167,7 @@ mkdir/delete). Static files (`/`, `/app.js`, `/style.css`, `/favicon.svg`) are s
 - **Frontend: vanilla HTML/CSS/JS.** No framework, no bundler, no transpile.
 - **Brand is the source of truth for anything visual.** Colors, gradient, fonts, radii,
   shadows, wordmark, voice — all come from [docs/BRAND.md](docs/BRAND.md) (visual deck:
-  [docs/brand/kinema-brand-guidelines.html](docs/brand/kinema-brand-guidelines.html)), which
+  [docs/brand/kadmu-brand-guidelines.html](docs/brand/kadmu-brand-guidelines.html)), which
   mirrors the CSS tokens in [src/web/style.css](src/web/style.css). Don't introduce a value
   that isn't in the brand; if you change one, update `BRAND.md` and `style.css` together.
 - **ffmpeg is optional** — guard every use behind a `FFMPEG`/`FFPROBE` check.
@@ -172,19 +187,21 @@ mkdir/delete). Static files (`/`, `/app.js`, `/style.css`, `/favicon.svg`) are s
 Flags: `[FOLDER ...]`, `--host`, `--port`, `--lan`, `--password`, `--read-only`, `--demo`,
 `--no-browse`, `--allowed-host` (repeatable), `--allow-any-host`, `--app`, `--kiosk`,
 `--no-open`, `--version`.
-Env equivalents read at startup: `KINEMA_PASSWORD`, `KINEMA_PORT`, `KINEMA_READONLY`,
-`KINEMA_LAUNCH_MODE` (`tab`/`app`/`kiosk`), `KINEMA_CACHE_LIMIT_MB`, `KINEMA_CACHE_TTL_SEC`,
-`KINEMA_ALLOWED_HOSTS`, `KINEMA_FFMPEG`, `KINEMA_FFPROBE`.
+Env equivalents read at startup: `KADMU_PASSWORD`, `KADMU_PORT`, `KADMU_READONLY`,
+`KADMU_LAUNCH_MODE` (`tab`/`app`/`kiosk`), `KADMU_CACHE_LIMIT_MB`, `KADMU_CACHE_TTL_SEC`,
+`KADMU_TRASH_TTL_DAYS` (auto-purge trash after N days; default 14), `KADMU_MAX_STREAMS`
+(concurrent live ffmpeg streams; default 5), `KADMU_INDEX_REFRESH_SEC` (background re-walk
+interval; default 300), `KADMU_ALLOWED_HOSTS`, `KADMU_FFMPEG`, `KADMU_FFPROBE`.
 
 ## Launchers & desktop icons
 
-`launchers/kinema.sh` and the `.bat` files auto-detect the layout: a source checkout runs
-`python3 src/server.py`; a release bundle runs the self-contained `kinema`/`kinema.exe`. They
+`launchers/kadmu.sh` and the `.bat` files auto-detect the layout: a source checkout runs
+`python3 src/server.py`; a release bundle runs the self-contained `kadmu`/`kadmu.exe`. They
 pass all args through, so the launch mode flows in via `--app`/`--kiosk`.
 
-`LAUNCH_MODE` (set in `main()` from `--app`/`--kiosk`/`KINEMA_LAUNCH_MODE`) drives
+`LAUNCH_MODE` (set in `main()` from `--app`/`--kiosk`/`KADMU_LAUNCH_MODE`) drives
 `_launch_browser()`: `tab` opens a normal Firefox tab (default), `app` opens a dedicated
 window using a separate Firefox profile at `STATE_DIR/app-profile`, `kiosk` adds `--kiosk`.
 The opt-in desktop-icon installers (`launchers/install-{linux.sh,macos.sh,windows.ps1}`) take
-a `tab|app|kiosk` argument and wire the icon (logo: `launchers/kinema.png`/`.ico`, generated
-from `src/web/favicon.svg`) to the launcher with that mode. macOS builds a real `Kinema.app`.
+a `tab|app|kiosk` argument and wire the icon (logo: `launchers/kadmu.png`/`.ico`, generated
+from `src/web/favicon.svg`) to the launcher with that mode. macOS builds a real `Kadmu.app`.

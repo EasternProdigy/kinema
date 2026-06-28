@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Kinema launcher.
+# Kadmu launcher.
 # Usage:
 #   ./run.sh                       # start with whatever library folders are saved
 #   ./run.sh /path/to/Videos       # add a folder and start
