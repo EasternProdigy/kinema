@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Multi-user accounts (opt-in, `--accounts`).** Real sign-in for households and shared
+  boxes, backed by an embedded **SQLite** database (`sqlite3`, still standard-library only —
+  no `pip`). Each person gets their **own** resume points, My List, playlists and display
+  preferences; admins manage the library and people, viewers just watch. Passwords are hashed
+  with **PBKDF2-HMAC-SHA256**, sessions **persist across restarts**, and the first account
+  created becomes the owner (admin) — inheriting any existing single-password watch history.
+  Manage everyone from **Settings ▸ People** (add users, set roles, reset passwords, open or
+  close self-sign-up); change your own name/password in **Settings ▸ Your account**; the
+  top-bar avatar opens an account menu with sign-out. Locked out? `--reset-password USERNAME`
+  resets it from the console. The default (no `--accounts`) is unchanged: one optional shared
+  password, one shared library.
 - **Plays every format.** Non-native containers (`.mkv`, `.avi`, `.ts`, …) now stream as a
   seekable MP4 via on-the-fly remux — a fast stream-copy when the codecs are already
   browser-friendly, transcoding only what isn't — cached under `cache/remux/`. This now

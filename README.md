@@ -127,6 +127,8 @@ The video pops out and floats over your other tabs and apps.
 - 🔖 **Continue watching** — resume positions saved server-side, synced across devices
 - 🗂️ Organize on disk — rename, move, new folder, delete (safe move-to-trash)
 - 🌐 LAN streaming with optional password
+- 👥 Optional **multi-user accounts** (`--accounts`) — per-person resume, My List & playlists,
+  with admin/viewer roles; off by default (one shared password)
 - 🔒 Read-only / kiosk mode for shared or demo instances
 
 ## Keyboard shortcuts (in the player)
@@ -148,15 +150,34 @@ python3 src/server.py [FOLDER ...] [options]
   --kiosk               open fullscreen with no browser chrome (TV / cinema mode)
   --read-only           disable all file management (demo / kiosk mode)
   --no-browse           disable the in-browser folder picker
+  --accounts            enable multi-user accounts (sign-in, per-user data, admin/viewer roles)
+  --reset-password USER reset/create USER as admin from the console, then exit
   --allowed-host HOST   extra hostname/domain allowed, repeatable (e.g. a reverse-proxy domain)
   --allow-any-host      disable Host allow-listing entirely (NOT recommended)
   --no-open             don't auto-open a browser
   --version             print the version and exit
 ```
 
-Environment variables: `KADMU_PASSWORD`, `KADMU_PORT`, `KADMU_READONLY`,
+Environment variables: `KADMU_PASSWORD`, `KADMU_PORT`, `KADMU_READONLY`, `KADMU_ACCOUNTS`,
+`KADMU_NEW_PASSWORD` (for `--reset-password`),
 `KADMU_LAUNCH_MODE` (`tab`/`app`/`kiosk`), `KADMU_CACHE_LIMIT_MB`, `KADMU_CACHE_TTL_SEC`,
 `KADMU_ALLOWED_HOSTS`, `KADMU_FFMPEG`, `KADMU_FFPROBE`.
+
+### Multi-user accounts (optional)
+
+By default Kadmu is one shared library with one optional password. Run with `--accounts` to
+give everyone their own sign-in instead:
+
+```
+python3 src/server.py ~/Videos --accounts          # add --lan to share on your network
+```
+
+The first person to open the page creates the **owner** account (an admin). Admins manage the
+library and people from **Settings ▸ People** (add users, set admin/viewer roles, reset
+passwords, and open/close self-sign-up); everyone gets their own resume points, My List and
+playlists, and can change their name/password under **Settings ▸ Your account**. Accounts live
+in an embedded SQLite database (`data/kadmu.db`) — still no `pip install`, all standard library.
+Locked out? `python3 src/server.py --reset-password yourname` prints a fresh admin password.
 
 ## Security model
 
@@ -165,7 +186,8 @@ Kadmu is built to be safe on a home network, not as a public multi-user service.
 
 - Binds to **localhost only** unless you pass `--lan`.
 - **Host & Origin checks** on every request block CSRF and DNS-rebinding attacks from other sites.
-- **Optional password** gates access; file management is also disabled in **read-only** mode.
+- **Optional password** (or full **accounts** with `--accounts`) gates access; file management
+  is admin-only with accounts, and disabled entirely in **read-only** mode.
 - All file access is **sandboxed** to the library folders you add — no path traversal.
 - **Don't** expose Kadmu directly to the public internet. If you must, put it behind a
   reverse proxy with HTTPS and a password, and use `--read-only`.

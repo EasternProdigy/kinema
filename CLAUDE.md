@@ -83,10 +83,25 @@ passes through one **security gate** before any work happens:
    the custom `X-Kadmu` header (which the frontend sets on every `api()` call and a cross-site
    page cannot add without a CORS preflight the server never grants), or a same-site
    `Origin`/`Referer`.
-3. **Auth** (`_authed`) — if a password is set, all routes except `PUBLIC_ROUTES` require a
-   valid `kadmu_session` cookie.
+3. **Auth** (`_authed`) — if a password is set (or accounts mode is on), all routes except
+   `PUBLIC_ROUTES` require a valid `kadmu_session` cookie. In **accounts mode** the cookie maps
+   to a SQLite session row → a user; `_resolve_user()` stashes that user on the request thread
+   (`current_user()`), and `_is_admin()` reads its role.
 
-Mutating library routes additionally call `_require_writable()` (rejects in `--read-only`).
+Mutating library routes additionally call `_require_writable()` (rejects in `--read-only`) and,
+in accounts mode, `_require_admin()` (library/instance management is admins-only; per-user data
+like progress/My-List/playlists is not).
+
+**Accounts mode (opt-in, `--accounts`).** A second auth model layered on the same gate:
+real multi-user accounts backed by an embedded **SQLite** DB (`sqlite3`, stdlib) at
+`data/kadmu.db`. The whole accounts subsystem lives in one section of `server.py` (schema +
+`create_user`/`auth_user`/`set_user_*`/`delete_user`, persistent `db_*_session`, and per-user
+`db_progress_*`/`db_mylist_*`/`db_playlists_*`/`db_prefs_*`). Passwords are **PBKDF2-HMAC-SHA256**
+(per-user salt), sessions persist across restarts, roles are `admin`/`viewer`, the first account
+created becomes the owner (admin) and inherits the old single-password JSON state via
+`_import_legacy_into()`. Default (no `--accounts`) is byte-for-byte the original single shared
+password — every data helper branches on `ACCOUNTS_ENABLED`. `--reset-password USERNAME` is the
+console recovery hatch. Accounts and `--profiles` are mutually exclusive (accounts subsume profiles).
 
 **Path safety is the other load-bearing invariant.** Any filesystem path coming from the
 client must go through `resolve_within_roots()` (resolves symlinks/`..` and confirms the
@@ -110,6 +125,9 @@ under `cache/remux/`.
 - `progress.json` — resume positions, keyed by absolute path; drives "Continue watching"
 - `playlists.json`, `meta_cache.json` — playlists and the ffprobe metadata cache
 - `cache/thumbs/<sha1>.jpg`, `cache/remux/…` — generated media
+- `kadmu.db` — **accounts mode only** (`--accounts`): SQLite holding users, persistent
+  sessions, and per-user progress/My-List/playlists/prefs. The JSON files above stay the store
+  for the default single-password mode (and are imported once into the first account).
 
 The cache key for thumbnails/metadata/remux is `path | mtime_ns | size`, so edits/replacements
 auto-invalidate. Concurrency is guarded by module-level locks (`_io_lock`, `_meta_lock`,
@@ -172,11 +190,12 @@ janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
   that isn't in the brand; if you change one, update `BRAND.md` and `style.css` together.
 - **ffmpeg is optional** — guard every use behind a `FFMPEG`/`FFPROBE` check.
 - **Security is non-negotiable**: new client-path handling goes through `resolve_within_roots`;
-  new mutating routes go through `_guard(..., mutating=True)` and `_require_writable()`; any
-  user/file-derived string rendered in the frontend is run through `escapeHtml`. See
-  [docs/SECURITY.md](docs/SECURITY.md) for the full threat model.
-- The app is built for **localhost + trusted LAN**, not a public multi-tenant service. No TLS
-  and a single shared password by design.
+  new mutating routes go through `_guard(..., mutating=True)` and `_require_writable()` (plus
+  `_require_admin()` if it's library/instance management, so viewers can't manage in accounts
+  mode); any user/file-derived string rendered in the frontend is run through `escapeHtml`;
+  never return a password hash to the client. See [docs/SECURITY.md](docs/SECURITY.md).
+- The app is built for **localhost + trusted LAN**, not a public multi-tenant service. No TLS;
+  one shared password by default, optional real accounts via `--accounts`.
 - `APP_VERSION` in [src/server.py](src/server.py) and [docs/CHANGELOG.md](docs/CHANGELOG.md)
   are kept in sync on release; the `Release` workflow triggers on `v*` tags and builds
   per-OS PyInstaller bundles with ffmpeg baked in. `install.sh`/`install.ps1` download those
@@ -186,8 +205,11 @@ janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
 
 Flags: `[FOLDER ...]`, `--host`, `--port`, `--lan`, `--password`, `--read-only`, `--demo`,
 `--no-browse`, `--allowed-host` (repeatable), `--allow-any-host`, `--app`, `--kiosk`,
-`--no-open`, `--version`.
+`--no-open`, `--profiles`, `--accounts`, `--reset-password USERNAME`, `--version`.
+`--accounts` turns on multi-user accounts (SQLite); `--reset-password USERNAME` resets/creates
+that account as admin (using `KADMU_NEW_PASSWORD`, else a printed random one) and exits.
 Env equivalents read at startup: `KADMU_PASSWORD`, `KADMU_PORT`, `KADMU_READONLY`,
+`KADMU_PROFILES`, `KADMU_ACCOUNTS`, `KADMU_NEW_PASSWORD` (for `--reset-password`),
 `KADMU_LAUNCH_MODE` (`tab`/`app`/`kiosk`), `KADMU_CACHE_LIMIT_MB`, `KADMU_CACHE_TTL_SEC`,
 `KADMU_TRASH_TTL_DAYS` (auto-purge trash after N days; default 14), `KADMU_MAX_STREAMS`
 (concurrent live ffmpeg streams; default 5), `KADMU_INDEX_REFRESH_SEC` (background re-walk

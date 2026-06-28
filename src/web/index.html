@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <!-- ===== Login (shown only when a password is set) ===== -->
+  <!-- ===== Login / sign-up (shown when a password or accounts are required) ===== -->
   <div id="loginOverlay" class="login-overlay hidden">
     <form class="login-card" id="loginForm">
       <div class="login-brand">
@@ -19,10 +19,16 @@
         </span>
         <span>kadmu</span>
       </div>
-      <p class="muted">This library is password-protected.</p>
+      <h2 class="login-h hidden" id="loginTitle"></h2>
+      <p class="muted" id="loginHint">This library is password-protected.</p>
+      <input type="text" id="loginName" class="hidden" placeholder="Display name (optional)"
+             autocomplete="name" maxlength="64" />
+      <input type="text" id="loginUsername" class="hidden" placeholder="Username"
+             autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" />
       <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
-      <button class="btn primary" type="submit">Unlock</button>
+      <button class="btn primary" type="submit" id="loginSubmit">Unlock</button>
       <div class="login-error" id="loginError"></div>
+      <button type="button" class="login-switch hidden" id="loginToggle"></button>
     </form>
   </div>
 
@@ -74,6 +80,7 @@
         <button class="size-btn" data-size="large" title="Large icons">L</button>
       </div>
       <button class="icon-btn profile-btn hidden" id="profileBtn" title="Switch profile" aria-label="Switch profile"><span class="profile-ava" id="profileAva">?</span></button>
+      <div class="user-menu hidden" id="userMenu" role="menu" aria-label="Account menu"></div>
       <button class="icon-btn" id="themeBtn" title="Theme" aria-label="Toggle light / dark theme"></button>
       <button class="icon-btn" id="refreshBtn" title="Refresh">
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v4h-4" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -321,6 +328,31 @@
           </div>
           <div id="lanControl" class="lan-control"></div>
           <div id="urlList" class="url-list"></div>
+        </section>
+
+        <!-- Your account (accounts mode) -->
+        <section class="settings-section hidden" id="accountSection">
+          <div class="section-head">
+            <span class="section-ic" data-icon="user" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>Your account</h4>
+              <p class="muted small">Signed in as <b id="accountWho">—</b>. Change your name or password here.</p>
+            </div>
+          </div>
+          <div id="accountControl" class="account-control"></div>
+        </section>
+
+        <!-- People / users (admin, accounts mode) -->
+        <section class="settings-section hidden" id="usersSection">
+          <div class="section-head">
+            <span class="section-ic" data-icon="users" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>People</h4>
+              <p class="muted small">Everyone who can sign in. Each person gets their own resume points, My List and playlists.</p>
+            </div>
+            <span class="section-count" id="userCount"></span>
+          </div>
+          <div id="usersControl" class="users-control"></div>
         </section>
 
         <!-- Keyboard shortcuts & tips -->

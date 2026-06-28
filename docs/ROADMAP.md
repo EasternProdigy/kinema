@@ -1,7 +1,9 @@
 # Kadmu Roadmap — from LAN app to dual self-host + hosted product
 
-> Status: **planning** (Phase 1 not yet started). This document is the agreed direction;
-> we implement phase by phase after the open decisions in §6 are made.
+> Status: **in progress.** Phase 1 "Tier 0" player polish (audio-track picker, subtitle
+> styling + sync) has landed, and **Phase 2 (accounts & multi-user, opt-in `--accounts`) is
+> shipped** — see the §2 marker and the changelog. This document remains the agreed direction;
+> we keep implementing phase by phase, settling the open decisions in §6 as we go.
 
 Goal: the **best browser-based player for your own video files** — VLC-grade per-file power,
 Netflix-grade ease of use — shipped as **two editions from one codebase**:
@@ -171,14 +173,21 @@ player and a beautiful frontend first** (the moat), then the Netflix-style disco
 - **watch party / synced playback** (LAN/self-host via a server-coordinated play state) — make
   it one click and free. Cross-internet watch-party + share-a-link land with P2P in Phase 4b.
 
-### Phase 2 — Accounts & multi-user foundation *(edition: Both; required for Cloud)*
-- Introduce **SQLite** (`sqlite3`, stdlib) as the state store; migrate JSON → DB with a
-  one-time importer. Keep atomic-write JSON as legacy/export.
-- **Activate profiles → real users:** registration, login, password reset, per-user identity.
-- **Per-user data isolation:** progress, My List, playlists, preferences keyed by user_id
-  (today they're shared across everyone who knows the one password).
-- **Persistent sessions** (survive restart) + **roles** (admin vs viewer).
-- Self-host gets this as *optional* (default stays single-password simple); Cloud requires it.
+### Phase 2 — Accounts & multi-user foundation *(edition: Both; required for Cloud)* — ✅ SHIPPED
+- ✅ Introduced **SQLite** (`sqlite3`, stdlib) as the accounts/state store, with a one-time
+  importer that pulls the shared single-password JSON state into the first (owner) account.
+  The JSON files remain the store for the default single-password mode.
+- ✅ **Real users:** registration, login, **admin/self password reset**, per-user identity.
+  (Email-based reset isn't possible stdlib-only with no SMTP config — reset is admin-driven
+  in the UI plus the `--reset-password` console hatch. Email reset waits for the Cloud layer.)
+- ✅ **Per-user data isolation:** progress, My List, playlists and prefs keyed by `user_id`.
+- ✅ **Persistent sessions** (SQLite rows, survive restart) + **roles** (admin vs viewer;
+  management is admin-only, last-admin protected).
+- ✅ Opt-in (`--accounts`); default stays single-password simple. Accounts subsume `--profiles`.
+> Built stdlib-only (PBKDF2-HMAC-SHA256 password hashing). Frontend: first-run owner setup,
+> sign-in/registration, an account menu, and Settings ▸ Your account / People (admin).
+> **Still open for a later pass:** a JSON *export* path (we import but don't export yet), and
+> moving the rest of frontend prefs server-side (cc/keyHud already sync; volume/last-folder don't).
 
 ### Phase 3 — Public-hardening & ops *(edition: Both; required for Cloud)*
 - **TLS story:** optional built-in `ssl` + a documented Caddy reverse-proxy deploy (auto-HTTPS).
@@ -354,8 +363,8 @@ hosted business (Phases 4–5) as a deliberate, separately-funded step.
 ## 6. Open decisions needed (before building Phase 2+)
 
 1. **Licensing:** MIT core, AGPL core, or open-core (AGPL/MIT core + proprietary `cloud/`)?
-2. **Self-host multi-user default:** stays single-password-simple with accounts *opt-in*, or
-   accounts become the default everywhere?
+2. ~~**Self-host multi-user default:**~~ **DECIDED** — single-password stays the default;
+   accounts are **opt-in** via `--accounts` (shipped in Phase 2). Cloud will require them.
 3. **Metadata enrichment:** OK to add the first **opt-in outbound network call** (TMDB)? (The
    app currently never phones home — this is a deliberate philosophy change, default-off.)
 4. **Remote-access scope** (now the key Cloud fork — storage is decided: files stay local):

@@ -32,6 +32,7 @@ import re
 import secrets
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -119,6 +120,7 @@ PLAYLISTS_PATH = DATA_DIR / "playlists.json"
 MYLIST_PATH = DATA_DIR / "mylist.json"
 META_CACHE_PATH = DATA_DIR / "meta_cache.json"
 PROFILES_PATH = DATA_DIR / "profiles.json"   # opt-in per-viewer id -> {"name"}
+DB_PATH = DATA_DIR / "kadmu.db"              # accounts mode (--accounts): users + per-user state
 
 TRASH_DIRNAME = ".kadmu-trash"
 
@@ -221,6 +223,7 @@ ALLOW_ANY_HOST = False   # escape hatch: disable Host allow-listing
 DEMO_ROOT = None         # when set (--demo), the only library root, served read-only
 LAUNCH_MODE = "tab"      # how to open the browser: "tab" | "app" | "kiosk"
 PROFILES_ENABLED = False # opt-in per-viewer progress + My List (--profiles / KADMU_PROFILES)
+ACCOUNTS_ENABLED = False # opt-in real multi-user accounts backed by SQLite (--accounts)
 ALLOWED_HOSTS: set[str] = set()
 PORT = 8000              # port we serve on (used to build the share URLs)
 BIND_HOST = "0.0.0.0"    # socket bind address
@@ -238,7 +241,7 @@ LOGIN_MAX_FAILS = 5
 # Routes reachable WITHOUT authentication (so the login screen can load).
 PUBLIC_ROUTES = {
     "/", "/index.html", "/app.js", "/qr.js", "/style.css", "/favicon.svg",
-    "/api/session", "/api/login",
+    "/api/session", "/api/login", "/api/register",
 }
 
 
@@ -259,6 +262,441 @@ def save_json(path: Path, data):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+
+
+def _json_obj(s):
+    """Parse a JSON blob, always returning a dict ({} on anything unexpected)."""
+    try:
+        d = json.loads(s)
+        return d if isinstance(d, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+# --------------------------------------------------------------------------- #
+# Accounts & per-user state — SQLite store (opt-in: --accounts)
+# --------------------------------------------------------------------------- #
+# When accounts mode is OFF (the default) none of this runs and the app behaves
+# exactly as before: one shared library, one optional shared password, one shared
+# set of resume points / My List. When ON, every viewer signs in with their own
+# username + password; progress, My List, playlists and preferences are keyed by
+# user_id, sessions persist across restarts, and library/instance management is
+# limited to admins. sqlite3 ships with Python, so the stdlib-only promise holds.
+# See docs/ROADMAP.md "Phase 2 — Accounts & multi-user foundation".
+PBKDF2_ITERS = 240_000        # cost of one password hash (PBKDF2-HMAC-SHA256)
+PW_MIN_LEN = 6
+USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+
+_db_local = threading.local()      # one sqlite connection per worker thread
+_db_init_lock = threading.Lock()
+_db_write_lock = threading.Lock()  # serialize the rare account-shape writes
+_db_ready = False
+
+DB_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  username  TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name      TEXT NOT NULL DEFAULT '',
+  pw_salt   TEXT NOT NULL,
+  pw_hash   TEXT NOT NULL,
+  iters     INTEGER NOT NULL DEFAULT 240000,
+  role      TEXT NOT NULL DEFAULT 'viewer',
+  created   REAL NOT NULL DEFAULT 0,
+  last_seen REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token   TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created REAL NOT NULL DEFAULT 0,
+  expires REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS progress (
+  user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  path     TEXT NOT NULL,
+  position REAL NOT NULL DEFAULT 0,
+  duration REAL NOT NULL DEFAULT 0,
+  updated  REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, path)
+);
+CREATE TABLE IF NOT EXISTS mylist (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  path    TEXT NOT NULL,
+  name    TEXT NOT NULL DEFAULT '',
+  added   REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, path)
+);
+CREATE TABLE IF NOT EXISTS playlists (
+  user_id INTEGER NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  data    TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS prefs (
+  user_id INTEGER NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  data    TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+"""
+
+
+def _db():
+    """The current thread's SQLite connection (one per thread; created on demand)."""
+    conn = getattr(_db_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")     # concurrent readers + one writer
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA foreign_keys=ON")      # ON DELETE CASCADE for user data
+        _db_local.conn = conn
+    return conn
+
+
+def init_db():
+    """Create the schema (idempotent). The owner account, created on first sign-up,
+    inherits any existing single-password JSON state via _import_legacy_into()."""
+    global _db_ready
+    with _db_init_lock:
+        if _db_ready:
+            return
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        conn = _db()
+        conn.executescript(DB_SCHEMA)
+        conn.commit()
+        _db_ready = True
+    db_purge_sessions()
+
+
+# ----- small key/value meta table ----------------------------------------- #
+def _meta_get(key, default=None):
+    row = _db().execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def _meta_set(key, value):
+    conn = _db()
+    conn.execute("INSERT INTO meta(key,value) VALUES(?,?) "
+                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
+    conn.commit()
+
+
+def signup_open():
+    """Whether anonymous visitors may register their own (viewer) account."""
+    return _meta_get("signup_open", "0") == "1"
+
+
+# ----- password hashing (PBKDF2-HMAC-SHA256, per-user salt) ---------------- #
+def _pw_make(password, iters=PBKDF2_ITERS):
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", str(password).encode("utf-8"),
+                             bytes.fromhex(salt), iters)
+    return salt, dk.hex(), iters
+
+
+def _pw_check(password, salt, expected, iters):
+    try:
+        dk = hashlib.pbkdf2_hmac("sha256", str(password).encode("utf-8"),
+                                 bytes.fromhex(salt), int(iters))
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(dk.hex(), expected)
+
+
+# ----- users -------------------------------------------------------------- #
+def _user_public(row):
+    """A user row stripped of its password hash, safe to return to the client."""
+    if row is None:
+        return None
+    return {"id": row["id"], "username": row["username"],
+            "name": row["name"] or row["username"], "role": row["role"],
+            "created": row["created"], "lastSeen": row["last_seen"]}
+
+
+def user_count():
+    return _db().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+
+
+def _admin_count():
+    return _db().execute("SELECT COUNT(*) AS n FROM users WHERE role='admin'").fetchone()["n"]
+
+
+def get_user(uid):
+    return _user_public(_db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone())
+
+
+def get_user_by_name(username):
+    return _db().execute("SELECT * FROM users WHERE username=? COLLATE NOCASE",
+                         (username,)).fetchone()
+
+
+def list_users():
+    return [_user_public(r) for r in
+            _db().execute("SELECT * FROM users ORDER BY id").fetchall()]
+
+
+def create_user(username, password, role="viewer", name=""):
+    """Create an account. The very first account is forced to 'admin' (the owner)
+    and inherits the shared single-password history. Returns (user, None) or
+    (None, error_message)."""
+    username = (username or "").strip()
+    if not USERNAME_RE.match(username):
+        return None, "Username must be 1-32 letters, numbers, dot, dash or underscore."
+    if len(str(password or "")) < PW_MIN_LEN:
+        return None, f"Password must be at least {PW_MIN_LEN} characters."
+    if role not in ("admin", "viewer"):
+        role = "viewer"
+    salt, h, iters = _pw_make(password)
+    now = time.time()
+    conn = _db()
+    try:
+        with _db_write_lock:
+            first = user_count() == 0
+            cur = conn.execute(
+                "INSERT INTO users(username,name,pw_salt,pw_hash,iters,role,created,last_seen) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (username, (name or username).strip()[:64], salt, h, iters,
+                 "admin" if first else role, now, now))
+            conn.commit()
+            uid = cur.lastrowid
+            if first:
+                _import_legacy_into(uid)
+    except sqlite3.IntegrityError:
+        return None, "That username is already taken."
+    return get_user(uid), None
+
+
+def auth_user(username, password):
+    """Verify credentials; returns the public user dict or None."""
+    row = get_user_by_name(username)
+    if row is None:
+        _pw_check(password, "00", "x" * 64, PBKDF2_ITERS)   # blunt user-enumeration timing
+        return None
+    if not _pw_check(password, row["pw_salt"], row["pw_hash"], row["iters"]):
+        return None
+    conn = _db()
+    conn.execute("UPDATE users SET last_seen=? WHERE id=?", (time.time(), row["id"]))
+    conn.commit()
+    return get_user(row["id"])
+
+
+def set_user_password(uid, password):
+    if len(str(password or "")) < PW_MIN_LEN:
+        return False, f"Password must be at least {PW_MIN_LEN} characters."
+    salt, h, iters = _pw_make(password)
+    conn = _db()
+    conn.execute("UPDATE users SET pw_salt=?, pw_hash=?, iters=? WHERE id=?",
+                 (salt, h, iters, uid))
+    conn.commit()
+    return True, None
+
+
+def set_user_role(uid, role):
+    if role not in ("admin", "viewer"):
+        return False, "Unknown role."
+    with _db_write_lock:
+        row = _db().execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+        if row is None:
+            return False, "No such user."
+        if row["role"] == "admin" and role == "viewer" and _admin_count() <= 1:
+            return False, "Can't remove the last admin."
+        _db().execute("UPDATE users SET role=? WHERE id=?", (role, uid))
+        _db().commit()
+    return True, None
+
+
+def delete_user(uid):
+    with _db_write_lock:
+        row = _db().execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+        if row is None:
+            return False, "No such user."
+        if row["role"] == "admin" and _admin_count() <= 1:
+            return False, "Can't delete the last admin."
+        _db().execute("DELETE FROM users WHERE id=?", (uid,))   # cascades to all their data
+        _db().commit()
+    return True, None
+
+
+# ----- persistent sessions ------------------------------------------------ #
+def db_new_session(uid):
+    tok = secrets.token_urlsafe(32)
+    now = time.time()
+    conn = _db()
+    conn.execute("INSERT INTO sessions(token,user_id,created,expires) VALUES(?,?,?,?)",
+                 (tok, uid, now, now + SESSION_TTL))
+    conn.commit()
+    return tok
+
+
+def db_session_user(token):
+    if not token:
+        return None
+    row = _db().execute("SELECT user_id, expires FROM sessions WHERE token=?",
+                        (token,)).fetchone()
+    if row is None:
+        return None
+    if row["expires"] <= time.time():
+        db_logout(token)
+        return None
+    return row["user_id"]
+
+
+def db_logout(token):
+    if not token:
+        return
+    conn = _db()
+    conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+    conn.commit()
+
+
+def db_logout_user_sessions(uid):
+    """Invalidate every session for a user (e.g. after an admin resets their pw)."""
+    conn = _db()
+    conn.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+    conn.commit()
+
+
+def db_purge_sessions():
+    try:
+        conn = _db()
+        conn.execute("DELETE FROM sessions WHERE expires <= ?", (time.time(),))
+        conn.commit()
+    except sqlite3.Error:
+        pass
+
+
+# ----- per-user resume / My List / playlists / prefs ---------------------- #
+def db_progress_all(uid):
+    rows = _db().execute(
+        "SELECT path, position, duration, updated FROM progress WHERE user_id=?",
+        (uid,)).fetchall()
+    return {r["path"]: {"position": r["position"], "duration": r["duration"],
+                        "updated": r["updated"]} for r in rows}
+
+
+def db_set_progress(uid, path, rec):
+    conn = _db()
+    conn.execute(
+        "INSERT INTO progress(user_id,path,position,duration,updated) VALUES(?,?,?,?,?) "
+        "ON CONFLICT(user_id,path) DO UPDATE SET "
+        "position=excluded.position, duration=excluded.duration, updated=excluded.updated",
+        (uid, path, float(rec.get("position", 0)), float(rec.get("duration", 0)),
+         float(rec.get("updated", 0))))
+    conn.commit()
+
+
+def db_clear_progress(uid, path):
+    conn = _db()
+    if path is None:
+        conn.execute("DELETE FROM progress WHERE user_id=?", (uid,))
+    else:
+        conn.execute("DELETE FROM progress WHERE user_id=? AND path=?", (uid, path))
+    conn.commit()
+
+
+def db_mylist_all(uid):
+    rows = _db().execute("SELECT path, name, added FROM mylist WHERE user_id=?",
+                         (uid,)).fetchall()
+    return {r["path"]: {"name": r["name"], "added": r["added"]} for r in rows}
+
+
+def db_mylist_set(uid, path, name, on):
+    conn = _db()
+    if on:
+        conn.execute(
+            "INSERT INTO mylist(user_id,path,name,added) VALUES(?,?,?,?) "
+            "ON CONFLICT(user_id,path) DO UPDATE SET name=excluded.name",
+            (uid, path, name, time.time()))
+    else:
+        conn.execute("DELETE FROM mylist WHERE user_id=? AND path=?", (uid, path))
+    conn.commit()
+    return [r["path"] for r in
+            _db().execute("SELECT path FROM mylist WHERE user_id=?", (uid,)).fetchall()]
+
+
+def db_playlists_get(uid):
+    row = _db().execute("SELECT data FROM playlists WHERE user_id=?", (uid,)).fetchone()
+    return _json_obj(row["data"]) if row else {}
+
+
+def db_playlists_set(uid, data):
+    conn = _db()
+    conn.execute("INSERT INTO playlists(user_id,data) VALUES(?,?) "
+                 "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data",
+                 (uid, json.dumps(data)))
+    conn.commit()
+
+
+def db_prefs_get(uid):
+    row = _db().execute("SELECT data FROM prefs WHERE user_id=?", (uid,)).fetchone()
+    return _json_obj(row["data"]) if row else {}
+
+
+def db_prefs_set(uid, data):
+    conn = _db()
+    conn.execute("INSERT INTO prefs(user_id,data) VALUES(?,?) "
+                 "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data",
+                 (uid, json.dumps(data)))
+    conn.commit()
+
+
+def db_migrate_path(old: Path, new: Path):
+    """Re-key resume + My List entries when a file/folder is renamed or moved, for
+    every user at once (file ops are admin-wide). Mirrors _migrate_progress()."""
+    old_s, new_s = str(old), str(new)
+    like = old_s + "/%"
+    cut = len(old_s) + 1     # sqlite substr() is 1-indexed; +1 drops the old prefix
+    conn = _db()
+    for tbl in ("progress", "mylist"):
+        conn.execute(f"UPDATE OR IGNORE {tbl} SET path=? WHERE path=?", (new_s, old_s))
+        conn.execute(f"UPDATE OR IGNORE {tbl} SET path=? || substr(path,?) WHERE path LIKE ?",
+                     (new_s, cut, like))
+    conn.commit()
+
+
+def _import_legacy_into(uid):
+    """One-time: pull the shared single-password JSON state (progress / My List /
+    playlists) into the owner account so enabling accounts mode keeps your history.
+    Runs once, gated by a meta flag; the JSON files are left in place as a backup."""
+    if _meta_get("legacy_imported") == "1":
+        return
+    prog = load_json(PROGRESS_PATH, {})
+    if isinstance(prog, dict):
+        for path, rec in prog.items():
+            if isinstance(rec, dict):
+                db_set_progress(uid, path, rec)
+    ml = load_json(MYLIST_PATH, {})
+    if isinstance(ml, dict):
+        conn = _db()
+        for path, rec in ml.items():
+            if isinstance(rec, dict):
+                conn.execute(
+                    "INSERT OR IGNORE INTO mylist(user_id,path,name,added) VALUES(?,?,?,?)",
+                    (uid, path, rec.get("name", ""), rec.get("added", 0)))
+        conn.commit()
+    pls = load_json(PLAYLISTS_PATH, {})
+    if isinstance(pls, dict) and pls:
+        db_playlists_set(uid, pls)
+    _meta_set("legacy_imported", "1")
+
+
+def current_user():
+    """The signed-in user for the request being handled (dict), or None."""
+    return getattr(_REQ, "user", None)
+
+
+def _current_uid():
+    u = current_user()
+    return u["id"] if u else None
+
+
+def _session_cookie(tok):
+    return (f"kadmu_session={tok}; HttpOnly; SameSite=Strict; "
+            f"Path=/; Max-Age={int(SESSION_TTL)}")
+
+
+CLEAR_COOKIE = "kadmu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
 
 
 # --------------------------------------------------------------------------- #
@@ -394,9 +832,13 @@ def _progress_all():
 
 
 def load_progress():
-    """A shallow copy of the active profile's resume table, safe to iterate without
+    """A shallow copy of the active viewer's resume table, safe to iterate without
     locking. Records are always replaced wholesale (never mutated in place), so
-    callers can read the value dicts they get back."""
+    callers can read the value dicts they get back. In accounts mode the table is
+    scoped to the signed-in user (SQLite); otherwise it's the shared/profile JSON."""
+    if ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        return db_progress_all(uid) if uid else {}
     with _progress_lock:
         return dict(_progress_all())
 
@@ -409,7 +851,12 @@ def save_progress(data: dict):
 
 
 def set_progress(path_str: str, rec: dict):
-    """Upsert one resume entry for the active profile."""
+    """Upsert one resume entry for the active viewer."""
+    if ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if uid:
+            db_set_progress(uid, path_str, rec)
+        return
     with _progress_lock:
         cache = dict(_progress_all())
         cache[path_str] = rec
@@ -419,7 +866,12 @@ def set_progress(path_str: str, rec: dict):
 
 def clear_progress(path_str: str | None):
     """Drop one entry (by path) or, with path_str=None, the whole table — for the
-    active profile."""
+    active viewer."""
+    if ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if uid:
+            db_clear_progress(uid, path_str)
+        return
     with _progress_lock:
         if path_str is None:
             cache = {}
@@ -953,6 +1405,11 @@ def _cache_janitor():
         if TRASH_TTL >= 0:
             try:
                 purge_trash(TRASH_TTL)
+            except Exception:
+                pass
+        if ACCOUNTS_ENABLED:
+            try:
+                db_purge_sessions()      # reap expired persistent sessions
             except Exception:
                 pass
 
@@ -1933,8 +2390,12 @@ def storyboard_image(video: Path):
 # My List (Netflix-style watchlist of pinned shows / movies)
 # --------------------------------------------------------------------------- #
 def my_list_items():
-    """Stored watchlist (active profile), filtered to entries that still exist."""
-    data = load_json(_mylist_path(), {})
+    """Stored watchlist (active viewer), filtered to entries that still exist."""
+    if ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        data = db_mylist_all(uid) if uid else {}
+    else:
+        data = load_json(_mylist_path(), {})
     items = []
     for path, rec in data.items():
         p = Path(path)
@@ -1952,8 +2413,19 @@ def my_list_items():
 
 
 def my_list_set(path: str, on: bool, name: str = ""):
-    """Add or remove a path from the active profile's watchlist. Returns the
-    updated paths set."""
+    """Add or remove a path from the active viewer's watchlist. Returns the
+    updated paths set (or None if the path is outside the library)."""
+    if ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if uid is None:
+            return None
+        if on:
+            p = resolve_within_roots(path, must_exist=True)
+            if not p:
+                return None
+            return db_mylist_set(uid, str(p), name or p.name, True)
+        p = resolve_within_roots(path, must_exist=False)
+        return db_mylist_set(uid, str(p) if p else path, "", False)
     mp = _mylist_path()
     with _io_lock:
         data = load_json(mp, {})
@@ -1976,7 +2448,11 @@ def _migrate_progress(old: Path, new: Path):
     """Preserve resume positions when a file or folder is renamed/moved: re-key
     every progress entry at (or under) `old` to the matching path under `new`, so
     renaming an episode (or a whole season folder) keeps your place and its
-    Continue-watching card instead of orphaning it."""
+    Continue-watching card instead of orphaning it. In accounts mode this re-keys
+    every user's resume + My List at once (file ops are library-wide)."""
+    if ACCOUNTS_ENABLED:
+        db_migrate_path(old, new)
+        return
     progress = load_progress()
     if not progress:
         return
@@ -2212,11 +2688,31 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     # -- security gate ------------------------------------------------------ #
+    def _resolve_user(self):
+        """Identify the signed-in user from the session cookie (accounts mode) and
+        memoize it on the request thread. Returns the user dict, or None."""
+        if getattr(_REQ, "_user_done", False):
+            return getattr(_REQ, "user", None)
+        _REQ._user_done = True
+        _REQ.user = None
+        if ACCOUNTS_ENABLED:
+            tok = parse_cookies(self.headers.get("Cookie", "")).get("kadmu_session")
+            uid = db_session_user(tok) if tok else None
+            if uid is not None:
+                _REQ.user = get_user(uid)
+        return _REQ.user
+
     def _authed(self):
+        if ACCOUNTS_ENABLED:
+            return self._resolve_user() is not None
         if not password_required():
             return True
         tok = parse_cookies(self.headers.get("Cookie", "")).get("kadmu_session")
         return session_valid(tok)
+
+    def _is_admin(self):
+        u = self._resolve_user()
+        return bool(u and u.get("role") == "admin")
 
     def _origin_ok(self):
         """For state-changing requests: require a positive same-site signal (CSRF)."""
@@ -2250,6 +2746,14 @@ class Handler(BaseHTTPRequestHandler):
     def _require_writable(self):
         if READONLY:
             self._send_json({"error": "This instance is read-only."}, 403)
+            return False
+        return True
+
+    def _require_admin(self):
+        """Library/instance management. In accounts mode it's admins only; in
+        single-password mode any signed-in user already cleared _guard."""
+        if ACCOUNTS_ENABLED and not self._is_admin():
+            self._send_json({"error": "Admins only."}, 403)
             return False
         return True
 
@@ -2450,21 +2954,35 @@ class Handler(BaseHTTPRequestHandler):
         return crumbs
 
     def _session_state(self):
-        return {
+        authed = self._authed()
+        # who may manage the library / instance: everyone signed in (single-password
+        # mode) or only admins (accounts mode).
+        admin = self._is_admin() if ACCOUNTS_ENABLED else authed
+        manage = (not READONLY) and authed and admin
+        st = {
             "app": APP_NAME, "version": APP_VERSION,
-            "authRequired": password_required(),
-            "authed": self._authed(),
+            "authRequired": ACCOUNTS_ENABLED or password_required(),
+            "authed": authed,
             "readonly": READONLY,
-            "canManage": (not READONLY) and self._authed(),
-            "canBrowse": ALLOW_BROWSE and (not READONLY) and self._authed(),
-            "nativePicker": bool(_picker_tool()) and (not READONLY) and self._authed(),
+            "canManage": manage,
+            "canBrowse": ALLOW_BROWSE and manage,
+            "nativePicker": bool(_picker_tool()) and manage,
             "ffmpeg": bool(FFMPEG),
             "urls": SERVER_URLS,
             "lan": LAN_MODE,
-            "canToggleLan": LAN_TOGGLEABLE and (not READONLY) and self._authed(),
-            "canSetPassword": (not READONLY) and self._authed(),
-            "profiles": PROFILES_ENABLED,
+            "canToggleLan": LAN_TOGGLEABLE and manage,
+            "canSetPassword": (not ACCOUNTS_ENABLED) and (not READONLY) and authed,
+            "profiles": PROFILES_ENABLED and not ACCOUNTS_ENABLED,
+            "accounts": ACCOUNTS_ENABLED,
+            "user": None, "role": None,
         }
+        if ACCOUNTS_ENABLED:
+            u = self._resolve_user()
+            st["user"] = u
+            st["role"] = (u or {}).get("role")
+            st["signupOpen"] = signup_open()
+            st["needsSetup"] = user_count() == 0
+        return st
 
     # -- per-request viewer profile (opt-in) -------------------------------- #
     def _set_profile(self):
@@ -2482,6 +3000,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         route, qs = parsed.path, parse_qs(parsed.query)
 
+        _REQ.user = None            # reset per-request identity (threads are reused)
+        _REQ._user_done = False
         if not self._guard(route, mutating=False):
             return
         self._set_profile()
@@ -2522,6 +3042,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/browse":
             if not (ALLOW_BROWSE and not READONLY):
                 return self._send_json({"error": "Browsing disabled."}, 403)
+            if ACCOUNTS_ENABLED and not self._is_admin():
+                return self._send_json({"error": "Admins only."}, 403)
             return self._send_json(browse_dir(unquote(qs.get("path", [""])[0])))
 
         if route == "/api/meta":
@@ -2625,6 +3147,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"enabled": PROFILES_ENABLED,
                                     "profiles": list_profiles() if PROFILES_ENABLED else []})
 
+        if route == "/api/users":
+            if not ACCOUNTS_ENABLED:
+                return self._send_json({"users": []})
+            if not self._is_admin():
+                return self._send_json({"error": "Admins only."}, 403)
+            return self._send_json({"users": list_users(), "signupOpen": signup_open()})
+
         if route == "/api/subs":
             path = resolve_within_roots(unquote(qs.get("path", [""])[0]))
             if not path or not path.is_file():
@@ -2653,7 +3182,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "could not read subtitle"}, 500)
 
         if route == "/api/playlists":
+            if ACCOUNTS_ENABLED:
+                uid = _current_uid()
+                return self._send_json(db_playlists_get(uid) if uid else {})
             return self._send_json(load_json(PLAYLISTS_PATH, {}))
+
+        if route == "/api/prefs":
+            # per-user preferences (accounts mode); empty otherwise (the client keeps
+            # its own prefs in localStorage when there are no accounts).
+            if ACCOUNTS_ENABLED:
+                uid = _current_uid()
+                return self._send_json(db_prefs_get(uid) if uid else {})
+            return self._send_json({})
 
         if route == "/api/trash":
             return self._send_json(trash_info())
@@ -2663,6 +3203,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         route = urlparse(self.path).path
 
+        _REQ.user = None            # reset per-request identity (threads are reused)
+        _REQ._user_done = False
         if not self._guard(route, mutating=True):
             return
         self._set_profile()
@@ -2676,9 +3218,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "profile": prof, "profiles": list_profiles()})
 
         if route == "/api/login":
+            ip = self.client_address[0] if self.client_address else "?"
+            if ACCOUNTS_ENABLED:
+                allowed, retry = login_check(ip)
+                if not allowed:
+                    return self._send_json(
+                        {"ok": False, "error": f"Too many attempts. Try again in {retry}s."},
+                        429, extra_headers={"Retry-After": str(retry)})
+                user = auth_user(str(body.get("username", "")), str(body.get("password", "")))
+                if user:
+                    login_ok(ip)
+                    tok = db_new_session(user["id"])
+                    return self._send_json({"ok": True, "authed": True, "user": user},
+                                           extra_headers={"Set-Cookie": _session_cookie(tok)})
+                login_fail(ip)
+                return self._send_json({"ok": False, "error": "Wrong username or password."}, 401)
             if not password_required():
                 return self._send_json({"ok": True, "authed": True})
-            ip = self.client_address[0] if self.client_address else "?"
             allowed, retry = login_check(ip)
             if not allowed:
                 return self._send_json(
@@ -2688,20 +3244,112 @@ class Handler(BaseHTTPRequestHandler):
             if verify_password(supplied):
                 login_ok(ip)
                 tok = new_session()
-                cookie = (f"kadmu_session={tok}; HttpOnly; SameSite=Strict; "
-                          f"Path=/; Max-Age=2592000")
                 return self._send_json({"ok": True, "authed": True},
-                                       extra_headers={"Set-Cookie": cookie})
+                                       extra_headers={"Set-Cookie": _session_cookie(tok)})
             login_fail(ip)
             return self._send_json({"ok": False, "error": "Wrong password."}, 401)
+
+        if route == "/api/register":
+            # Accounts mode only. The first account becomes the owner (admin) and is
+            # always allowed; after that, self-registration depends on the signup flag.
+            if not ACCOUNTS_ENABLED:
+                return self._send_json({"ok": False, "error": "Accounts are disabled."}, 400)
+            ip = self.client_address[0] if self.client_address else "?"
+            allowed, retry = login_check(ip)
+            if not allowed:
+                return self._send_json(
+                    {"ok": False, "error": f"Too many attempts. Try again in {retry}s."},
+                    429, extra_headers={"Retry-After": str(retry)})
+            first = user_count() == 0
+            if not first and not signup_open():
+                return self._send_json(
+                    {"ok": False, "error": "Sign-ups are closed. Ask an admin for an account."}, 403)
+            user, err = create_user(str(body.get("username", "")),
+                                    str(body.get("password", "")),
+                                    role="viewer", name=str(body.get("name", "")))
+            if err:
+                login_fail(ip)
+                return self._send_json({"ok": False, "error": err}, 400)
+            login_ok(ip)
+            tok = db_new_session(user["id"])
+            return self._send_json({"ok": True, "authed": True, "user": user},
+                                   extra_headers={"Set-Cookie": _session_cookie(tok)})
 
         if route == "/api/logout":
             tok = parse_cookies(self.headers.get("Cookie", "")).get("kadmu_session")
             if tok:
+                if ACCOUNTS_ENABLED:
+                    db_logout(tok)
                 with SESSIONS_LOCK:
                     SESSIONS.pop(tok, None)
-            clear = "kadmu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
-            return self._send_json({"ok": True}, extra_headers={"Set-Cookie": clear})
+            return self._send_json({"ok": True}, extra_headers={"Set-Cookie": CLEAR_COOKIE})
+
+        if route == "/api/account":
+            # Change your own display name and/or password (accounts mode).
+            if not ACCOUNTS_ENABLED:
+                return self._send_json({"ok": False, "error": "Accounts are disabled."}, 400)
+            u = self._resolve_user()
+            if not u:
+                return self._send_json({"error": "Authentication required", "needAuth": True}, 401)
+            new_pw = body.get("newPassword")
+            if new_pw:
+                row = get_user_by_name(u["username"])
+                if not row or not _pw_check(str(body.get("currentPassword", "")),
+                                            row["pw_salt"], row["pw_hash"], row["iters"]):
+                    return self._send_json({"ok": False, "error": "Current password is wrong."}, 403)
+                ok, err = set_user_password(u["id"], str(new_pw))
+                if not ok:
+                    return self._send_json({"ok": False, "error": err}, 400)
+            name = body.get("name")
+            if isinstance(name, str) and name.strip():
+                _db().execute("UPDATE users SET name=? WHERE id=?",
+                              (name.strip()[:64], u["id"]))
+                _db().commit()
+            return self._send_json({"ok": True, "user": get_user(u["id"])})
+
+        if route == "/api/users":
+            # Admin-only user management (accounts mode).
+            if not ACCOUNTS_ENABLED:
+                return self._send_json({"ok": False, "error": "Accounts are disabled."}, 400)
+            if not self._require_admin():
+                return
+            me = self._resolve_user()
+            action = body.get("action")
+            if action == "create":
+                user, err = create_user(str(body.get("username", "")),
+                                        str(body.get("password", "")),
+                                        role=str(body.get("role", "viewer")),
+                                        name=str(body.get("name", "")))
+                if err:
+                    return self._send_json({"ok": False, "error": err}, 400)
+                return self._send_json({"ok": True, "user": user, "users": list_users()})
+            try:
+                uid = int(body.get("id"))
+            except (TypeError, ValueError):
+                if action == "signup":
+                    _meta_set("signup_open", "1" if body.get("open") else "0")
+                    return self._send_json({"ok": True, "signupOpen": signup_open()})
+                return self._send_json({"ok": False, "error": "Which user?"}, 400)
+            if action == "signup":
+                _meta_set("signup_open", "1" if body.get("open") else "0")
+                return self._send_json({"ok": True, "signupOpen": signup_open()})
+            if action == "setRole":
+                if uid == me["id"] and str(body.get("role")) == "viewer":
+                    return self._send_json({"ok": False, "error": "You can't demote yourself."}, 400)
+                ok, err = set_user_role(uid, str(body.get("role", "viewer")))
+            elif action == "resetPassword":
+                ok, err = set_user_password(uid, str(body.get("password", "")))
+                if ok:
+                    db_logout_user_sessions(uid)   # force re-login with the new password
+            elif action == "delete":
+                if uid == me["id"]:
+                    return self._send_json({"ok": False, "error": "You can't delete yourself."}, 400)
+                ok, err = delete_user(uid)
+            else:
+                ok, err = False, "Unknown action."
+            if not ok:
+                return self._send_json({"ok": False, "error": err}, 400)
+            return self._send_json({"ok": True, "users": list_users()})
 
         if route == "/api/progress":
             p = resolve_within_roots(body.get("path"), must_exist=False)
@@ -2736,7 +3384,7 @@ class Handler(BaseHTTPRequestHandler):
             # network-sharing toggle: a server setting, not a library write, but we
             # still gate it behind management rights so a read-only/demo instance
             # can never be flipped open by a visitor.
-            if not self._require_writable():
+            if not self._require_writable() or not self._require_admin():
                 return
             if not LAN_TOGGLEABLE:
                 return self._send_json(
@@ -2747,10 +3395,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "lan": LAN_MODE, "urls": SERVER_URLS})
 
         if route == "/api/password":
-            # Set / change / clear the access password at runtime (persisted, hashed).
-            # Gated like the LAN toggle so a read-only/demo instance can't be locked.
-            # _guard already required a valid session when a password is currently set,
-            # so only someone already signed in can change or remove it.
+            # Set / change / clear the shared access password at runtime (persisted,
+            # hashed). Gated like the LAN toggle so a read-only/demo instance can't be
+            # locked. Meaningless in accounts mode — each user has their own password.
+            if ACCOUNTS_ENABLED:
+                return self._send_json(
+                    {"ok": False, "error": "This instance uses accounts; manage them in "
+                     "Settings instead of a shared password."}, 400)
             if not self._require_writable():
                 return
             new_pw = str(body.get("password", ""))
@@ -2760,16 +3411,24 @@ class Handler(BaseHTTPRequestHandler):
             extra = {}
             if password_required():
                 tok = new_session()          # keep whoever just set it signed in on this device
-                extra["Set-Cookie"] = (f"kadmu_session={tok}; HttpOnly; SameSite=Strict; "
-                                       f"Path=/; Max-Age=2592000")
+                extra["Set-Cookie"] = _session_cookie(tok)
             else:
-                extra["Set-Cookie"] = "kadmu_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
+                extra["Set-Cookie"] = CLEAR_COOKIE
             return self._send_json({"ok": True, "authRequired": password_required()},
                                    extra_headers=extra)
 
-        # ---- everything below mutates the library: require writable ------- #
+        if route == "/api/prefs":
+            # per-user preferences blob (accounts mode); a no-op otherwise.
+            if ACCOUNTS_ENABLED:
+                uid = _current_uid()
+                if uid:
+                    prefs = body.get("prefs")
+                    db_prefs_set(uid, prefs if isinstance(prefs, dict) else {})
+            return self._send_json({"ok": True})
+
+        # ---- everything below mutates the library: writable + (accounts) admin ---- #
         if route == "/api/config":
-            if not self._require_writable():
+            if not self._require_writable() or not self._require_admin():
                 return
             cfg = get_config()
             roots = body.get("roots")
@@ -2788,14 +3447,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(get_config())
 
         if route == "/api/playlists":
+            # personal playlists — per-user in accounts mode, shared otherwise.
             if not self._require_writable():
                 return
-            with _io_lock:
-                save_json(PLAYLISTS_PATH, body.get("playlists", {}))
+            if ACCOUNTS_ENABLED:
+                uid = _current_uid()
+                if uid:
+                    pls = body.get("playlists")
+                    db_playlists_set(uid, pls if isinstance(pls, dict) else {})
+            else:
+                with _io_lock:
+                    save_json(PLAYLISTS_PATH, body.get("playlists", {}))
             return self._send_json({"ok": True})
 
         if route == "/api/pick-folder":
-            if not self._require_writable():
+            if not self._require_writable() or not self._require_admin():
                 return
             if not _picker_tool():
                 return self._send_json({"ok": False, "error": "No native folder picker on this machine."})
@@ -2810,7 +3476,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "path": str(p.resolve())})
 
         if route == "/api/add-paths":
-            if not self._require_writable():
+            if not self._require_writable() or not self._require_admin():
                 return
             cfg = get_config()
             roots = list(cfg.get("roots", []))
@@ -2833,7 +3499,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "added": added, "roots": roots})
 
         if route == "/api/op":
-            if not self._require_writable():
+            if not self._require_writable() or not self._require_admin():
                 return
             action = body.get("action")
             if action == "rename":
@@ -3009,6 +3675,7 @@ def main():
     global READONLY, ALLOW_BROWSE, LAN_MODE, ALLOW_ANY_HOST
     global ALLOWED_HOSTS, SERVER_URLS, DEMO_ROOT, LAUNCH_MODE
     global PORT, BIND_HOST, LAN_TOGGLEABLE, PW_SALT, PW_HASH, PROFILES_ENABLED
+    global ACCOUNTS_ENABLED
 
     parser = argparse.ArgumentParser(
         prog="kadmu", description=f"{APP_NAME} - a personal cinema in a browser tab")
@@ -3038,6 +3705,12 @@ def main():
     parser.add_argument("--profiles", action="store_true",
                         default=os.environ.get("KADMU_PROFILES") in ("1", "true", "yes"),
                         help="enable opt-in per-viewer profiles (separate resume + My List)")
+    parser.add_argument("--accounts", action="store_true",
+                        default=os.environ.get("KADMU_ACCOUNTS") in ("1", "true", "yes"),
+                        help="enable real multi-user accounts (sign-in, per-user data, roles)")
+    parser.add_argument("--reset-password", metavar="USERNAME", default=None,
+                        help="reset (or create, as admin) an account's password, then exit. "
+                             "Uses KADMU_NEW_PASSWORD if set, else prints a random one.")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     args = parser.parse_args()
 
@@ -3048,6 +3721,40 @@ def main():
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    ACCOUNTS_ENABLED = bool(args.accounts) or bool(args.reset_password)
+    # Accounts replace the simpler viewer-profiles feature (they ARE per-user).
+    if ACCOUNTS_ENABLED:
+        PROFILES_ENABLED = False
+        init_db()
+    else:
+        PROFILES_ENABLED = bool(args.profiles)
+
+    # Recovery escape hatch: reset (or create, as admin) an account from the console,
+    # for when the only admin is locked out. Local console access == box owner.
+    if args.reset_password:
+        uname = args.reset_password
+        new_pw = os.environ.get("KADMU_NEW_PASSWORD") or secrets.token_urlsafe(9)
+        row = get_user_by_name(uname)
+        if row:
+            ok, err = set_user_password(row["id"], new_pw)
+            if not ok:
+                print(f"  Couldn't reset '{uname}': {err}")
+                sys.exit(1)
+            db_logout_user_sessions(row["id"])
+            set_user_role(row["id"], "admin")
+            print(f"  Reset password for '{uname}' (now an admin).")
+        else:
+            user, err = create_user(uname, new_pw, role="admin")
+            if err:
+                print(f"  Couldn't create '{uname}': {err}")
+                sys.exit(1)
+            set_user_role(user["id"], "admin")
+            print(f"  Created admin account '{uname}'.")
+        print(f"  Temporary password: {new_pw}")
+        print("  Sign in, then change it in Settings → Account.")
+        return
+
     start_cache_janitor()   # regularly clears prepared files you're no longer watching
 
     # Already running? Act like a normal desktop app: just open a new tab and
@@ -3091,16 +3798,18 @@ def main():
         LAN_TOGGLEABLE = False
     # CLI/env --password wins for this run (in-memory only); otherwise restore a
     # password set earlier from the app itself (persisted, hashed, in config.json).
-    if args.password:
-        set_password(args.password, persist=False)
-    else:
-        _saved = get_config().get("auth")
-        if isinstance(_saved, dict) and _saved.get("salt") and _saved.get("hash"):
-            PW_SALT, PW_HASH = _saved["salt"], _saved["hash"]
+    # The single shared password is bypassed entirely in accounts mode (each user
+    # has their own), so don't bother restoring it there.
+    if not ACCOUNTS_ENABLED:
+        if args.password:
+            set_password(args.password, persist=False)
+        else:
+            _saved = get_config().get("auth")
+            if isinstance(_saved, dict) and _saved.get("salt") and _saved.get("hash"):
+                PW_SALT, PW_HASH = _saved["salt"], _saved["hash"]
     READONLY = bool(args.read_only)
     ALLOW_BROWSE = not args.no_browse
     ALLOW_ANY_HOST = args.allow_any_host
-    PROFILES_ENABLED = bool(args.profiles)
 
     if args.demo:
         demo_dir = STATE_DIR / "demo-library"
@@ -3139,10 +3848,18 @@ def main():
             print(f"    - {r}")
     else:
         print("  No library folders yet - add one in Settings (gear icon).")
-    print(f"  Login:   {'password required' if password_required() else 'none (anyone on an allowed host)'}")
+    if ACCOUNTS_ENABLED:
+        n_users = user_count()
+        if n_users == 0:
+            print("  Login:   accounts mode — open the page to create the owner account")
+        else:
+            print(f"  Login:   accounts mode ({n_users} user{'s' if n_users != 1 else ''}; "
+                  f"sign-ups {'open' if signup_open() else 'closed'})")
+    else:
+        print(f"  Login:   {'password required' if password_required() else 'none (anyone on an allowed host)'}")
     print(f"  Mode:    {'DEMO (read-only)' if args.demo else ('READ-ONLY' if READONLY else 'full control')}")
     print(f"  ffmpeg:  {FFMPEG or 'NOT found (thumbnails disabled)'}")
-    if LAN_MODE and not password_required():
+    if LAN_MODE and not ACCOUNTS_ENABLED and not password_required():
         print("  NOTE: sharing is on with no password — anyone on your network can watch & manage. Set one in Settings.")
     print("  Press Ctrl+C to stop.")
     print("=" * 64)

@@ -115,6 +115,9 @@ const ICON = {
   audio: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h3.5L12.5 19V5L7.5 9H4Z" fill="currentColor" stroke="none"/><path d="M16 9.2a4 4 0 0 1 0 5.6M18.6 6.6a7.6 7.6 0 0 1 0 10.8"/></svg>`,
   chapters: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="4.3" rx="1.1"/><rect x="3" y="14.7" width="18" height="4.3" rx="1.1"/><path d="M9 5v4.3M15 14.7V19"/></svg>`,
   timer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 1.7M9.3 2.6h5.4M19 6l-1.6-1.6"/></svg>`,
+  user:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg>`,
+  users: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 19.5c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5"/><path d="M16 5.2a3.2 3.2 0 0 1 0 6.1M17.6 14.2c2.6.5 3.9 2.4 3.9 5.3"/></svg>`,
+  logout: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 7V5.5A1.5 1.5 0 0 0 12.5 4h-6A1.5 1.5 0 0 0 5 5.5v13A1.5 1.5 0 0 0 6.5 20h6a1.5 1.5 0 0 0 1.5-1.5V17"/><path d="M9.5 12H21M18 9l3 3-3 3"/></svg>`,
 };
 function applyIcons(root = document) {
   $$("[data-icon]", root).forEach(n => { const k = n.dataset.icon; if (ICON[k]) n.innerHTML = ICON[k]; });
@@ -130,7 +133,7 @@ const state = {
   data: null,
   roots: [],              // [{name, path}] configured library roots — lets URLs read as folder names
   progress: {},
-  session: { authRequired: false, authed: true, readonly: false, canManage: true, canBrowse: true, ffmpeg: false, lan: false, canToggleLan: false, urls: [] },
+  session: { authRequired: false, authed: true, readonly: false, canManage: true, canBrowse: true, ffmpeg: false, lan: false, canToggleLan: false, urls: [], accounts: false, user: null, role: null },
   organize: false,
   sort: "name",           // name | recent | date | size | duration  (library ordering)
   filter: "all",          // all | unwatched | watched | playable
@@ -1191,7 +1194,12 @@ async function openSettings() {
   renderStatus();
   renderLan();
   renderUrls();
-  await renderRoots();
+  // Library management is admin-only in accounts mode; hide that section for viewers.
+  const libSec = $("#rootList")?.closest(".settings-section");
+  if (libSec) libSec.classList.toggle("hidden", state.session.accounts && !state.session.canManage);
+  if (state.session.canManage) await renderRoots();
+  renderAccount();          // your own account (accounts mode)
+  await renderUsers();      // people management (admins, accounts mode)
 }
 function closeSettings() { $("#settingsModal").classList.add("hidden"); }
 
@@ -1304,7 +1312,11 @@ function renderStatus() {
       ? statTile("lock", "Library", "Read-only", "warn")
       : statTile("rename", "Library", "Read &amp; write", "ok"),
     statTile("globe", "Network", lan ? "Shared on your network" : "This computer only", lan ? "warn" : "ok"),
-    statTile("lock", "Password", s.authRequired ? "Protected" : "Off", s.authRequired ? "ok" : "off"),
+    s.accounts
+      ? statTile("user", "Account",
+          s.user ? `${escapeHtml(s.user.name || s.user.username)} · ${s.role === "admin" ? "Admin" : "Viewer"}` : "Signed out",
+          "ok")
+      : statTile("lock", "Password", s.authRequired ? "Protected" : "Off", s.authRequired ? "ok" : "off"),
   ];
   const grid = $("#statGrid");
   if (grid) { grid.innerHTML = tiles.join(""); applyIcons(grid); }
@@ -1409,9 +1421,59 @@ async function setNetworkPassword(pw) {
   } catch (e) { toast(e.message, "err"); }
 }
 
-/* ===================== login ===================== */
-function showLogin() { $("#loginOverlay").classList.remove("hidden"); setTimeout(() => $("#loginPassword")?.focus(), 50); }
+/* ===================== login / sign-up ===================== */
+let loginMode = "login";   // "login" | "register" (accounts mode only)
+
+function showLogin() {
+  renderLoginForm();
+  $("#loginOverlay").classList.remove("hidden");
+  setTimeout(() => (state.session.accounts ? $("#loginUsername") : $("#loginPassword"))?.focus(), 50);
+}
 function hideLogin() { $("#loginOverlay").classList.add("hidden"); }
+
+// Configure the one login card for the active auth model: a shared password, an
+// account sign-in, the first-run "create the owner" screen, or self-registration.
+function renderLoginForm() {
+  const s = state.session || {};
+  const acc = !!s.accounts;
+  const setup = acc && !!s.needsSetup;
+  const uname = $("#loginUsername"), name = $("#loginName"), pw = $("#loginPassword");
+  const title = $("#loginTitle"), hint = $("#loginHint");
+  const submit = $("#loginSubmit"), toggle = $("#loginToggle");
+  $("#loginError").textContent = "";
+  if (!acc) {                                   // single shared password (original behaviour)
+    uname.classList.add("hidden"); name.classList.add("hidden");
+    title.classList.add("hidden"); toggle.classList.add("hidden");
+    hint.textContent = "This library is password-protected.";
+    pw.autocomplete = "current-password";
+    submit.textContent = "Unlock";
+    return;
+  }
+  if (setup) loginMode = "register";
+  const reg = loginMode === "register";
+  uname.classList.remove("hidden");
+  name.classList.toggle("hidden", !reg);
+  title.classList.remove("hidden");
+  title.textContent = setup ? "Welcome to Kadmu" : (reg ? "Create your account" : "Sign in");
+  hint.textContent = setup
+    ? "Create the owner account — it manages the library and everyone who can sign in."
+    : (reg ? "Pick a username and a password." : "Sign in to your account.");
+  pw.autocomplete = reg ? "new-password" : "current-password";
+  submit.textContent = setup ? "Create owner account" : (reg ? "Create account" : "Sign in");
+  // offer the login/register switch only when self-sign-up is open (never during setup)
+  if (setup || (!reg && !s.signupOpen)) {
+    toggle.classList.add("hidden");
+  } else {
+    toggle.classList.remove("hidden");
+    toggle.textContent = reg ? "← Back to sign in" : "Create an account";
+  }
+}
+
+function setLoginMode(m) {
+  loginMode = m;
+  renderLoginForm();
+  setTimeout(() => $("#loginUsername")?.focus(), 30);
+}
 
 /* ===================== player ===================== */
 const video = $("#video");
@@ -2101,6 +2163,19 @@ function persistCc() {
     localStorage.setItem("kadmu_cc_color", state.ccColor);
     localStorage.setItem("kadmu_cc_bg", state.ccBg);
   } catch {}
+  pushPrefs();
+}
+
+// In accounts mode, mirror display prefs to the server so they follow you between
+// devices. A no-op without accounts (the browser's localStorage is the store).
+function pushPrefs() {
+  if (!state.session || !state.session.accounts || !state.session.user) return;
+  const prefs = { ccSize: state.ccSize, ccColor: state.ccColor, ccBg: state.ccBg,
+                  keyHud: state.keyHud ? 1 : 0 };
+  api("/api/prefs", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prefs }),
+  }).catch(() => {});
 }
 // Shift every loaded cue by the current offset. Each cue's original times are stashed
 // once (_o0/_o1) so repeated nudges stay absolute and never drift.
@@ -2526,6 +2601,196 @@ async function addProfile(name) {
   } catch (e) { toast(e.message, "err"); }
 }
 
+/* ---------- accounts: top-bar user button + menu ---------- */
+function userInitial() {
+  const u = state.session.user;
+  return (((u && (u.name || u.username)) || "?").trim().charAt(0).toUpperCase()) || "?";
+}
+// In accounts mode the top-bar avatar is the account button (it opens the user
+// menu); the viewer-profiles chooser is unused.
+function loadAccountUi() {
+  if (!state.session.accounts) return;
+  const btn = $("#profileBtn"), ava = $("#profileAva"), u = state.session.user || {};
+  if (ava) ava.textContent = userInitial();
+  if (btn) {
+    btn.classList.remove("hidden");
+    btn.title = `${u.name || u.username || "Account"} — account`;
+    btn.setAttribute("aria-label", "Account menu");
+  }
+}
+function buildUserMenu() {
+  const m = $("#userMenu");
+  if (!m) return;
+  const u = state.session.user || {};
+  const role = u.role === "admin" ? "Admin" : "Viewer";
+  m.innerHTML =
+    `<div class="um-head"><span class="um-ava">${escapeHtml(userInitial())}</span>` +
+    `<span class="um-id"><b>${escapeHtml(u.name || u.username || "—")}</b>` +
+    `<span class="muted small">@${escapeHtml(u.username || "")} · ${role}</span></span></div>`;
+  const acct = el("button", "um-item");
+  acct.type = "button";
+  acct.innerHTML = `<span class="um-ic" data-icon="user"></span><span>Account settings</span>`;
+  acct.onclick = async () => {
+    hideUserMenu();
+    await openSettings();
+    $("#accountSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  m.appendChild(acct);
+  const out = el("button", "um-item");
+  out.type = "button";
+  out.innerHTML = `<span class="um-ic" data-icon="logout"></span><span>Sign out</span>`;
+  out.onclick = () => { hideUserMenu(); signOut(); };
+  m.appendChild(out);
+  applyIcons(m);
+}
+function toggleUserMenu() {
+  const m = $("#userMenu");
+  if (!m) return;
+  if (m.classList.contains("hidden")) { buildUserMenu(); m.classList.remove("hidden"); }
+  else hideUserMenu();
+}
+function hideUserMenu() { $("#userMenu")?.classList.add("hidden"); }
+async function signOut() {
+  try { await fetch("/api/logout", { method: "POST", headers: { "X-Kadmu": "1" } }); } catch {}
+  try { localStorage.removeItem("kadmu_last_path"); } catch {}
+  location.reload();
+}
+
+/* ---------- settings: your account ---------- */
+function renderAccount() {
+  const sec = $("#accountSection");
+  if (!sec) return;
+  if (!state.session.accounts || !state.session.user) { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  const u = state.session.user;
+  const who = $("#accountWho");
+  if (who) who.textContent = `${u.name || u.username} (@${u.username})`;
+  const box = $("#accountControl");
+  box.innerHTML =
+    `<div class="acct-row"><label class="acct-label" for="acctName">Display name</label>` +
+    `<div class="acct-line"><input type="text" id="acctName" maxlength="64" value="${escapeHtml(u.name || "")}" />` +
+    `<button class="btn" id="acctNameSave" type="button">Save</button></div></div>` +
+    `<div class="acct-row"><label class="acct-label" for="acctNew">Change password</label>` +
+    `<div class="acct-line"><input type="password" id="acctCur" placeholder="Current password" autocomplete="current-password" /></div>` +
+    `<div class="acct-line"><input type="password" id="acctNew" placeholder="New password" autocomplete="new-password" />` +
+    `<button class="btn primary" id="acctPwSave" type="button">Update</button></div></div>`;
+  $("#acctNameSave").onclick = () => saveAccount({ name: $("#acctName").value.trim() });
+  $("#acctPwSave").onclick = () => {
+    const cur = $("#acctCur").value, nw = $("#acctNew").value;
+    if (!nw) { toast("Enter a new password.", "err"); return; }
+    saveAccount({ currentPassword: cur, newPassword: nw });
+  };
+}
+async function saveAccount(payload) {
+  try {
+    const r = await api("/api/account", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (r && r.ok === false) { toast(r.error || "Could not update your account.", "err"); return; }
+    await refreshSession();
+    loadAccountUi(); renderAccount(); renderStatus();
+    toast(payload.newPassword ? "Password updated" : "Saved", "ok");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+/* ---------- settings: people / users (admin) ---------- */
+async function renderUsers() {
+  const sec = $("#usersSection");
+  if (!sec) return;
+  if (!state.session.accounts || state.session.role !== "admin") { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  const box = $("#usersControl");
+  let data = { users: [], signupOpen: false };
+  try { data = await api("/api/users"); }
+  catch (e) { box.innerHTML = `<p class="muted small">${escapeHtml(e.message)}</p>`; return; }
+  const me = state.session.user || {};
+  const users = data.users || [];
+  const cnt = $("#userCount"); if (cnt) cnt.textContent = users.length;
+  box.innerHTML = "";
+
+  const sgn = el("label", "pref-toggle");
+  sgn.innerHTML = `<input type="checkbox" id="signupToggle"${data.signupOpen ? " checked" : ""} />` +
+    `<span>Let anyone create their own account <span class="muted small">— off means only admins add people below</span></span>`;
+  box.appendChild(sgn);
+  $("#signupToggle").onchange = (e) => usersAction({ action: "signup", open: e.target.checked });
+
+  const list = el("div", "user-list");
+  for (const u of users) {
+    const isMe = u.id === me.id;
+    const row = el("div", "user-row");
+    row.innerHTML =
+      `<span class="user-ava">${escapeHtml((u.name || u.username || "?").charAt(0).toUpperCase())}</span>` +
+      `<span class="user-id"><b>${escapeHtml(u.name || u.username)}</b>` +
+      `<span class="muted small">@${escapeHtml(u.username)}${isMe ? " · you" : ""}</span></span>`;
+    const actions = el("div", "user-actions");
+    const sel = el("select", "user-role");
+    sel.innerHTML = `<option value="viewer"${u.role === "viewer" ? " selected" : ""}>Viewer</option>` +
+                    `<option value="admin"${u.role === "admin" ? " selected" : ""}>Admin</option>`;
+    sel.disabled = isMe;                         // can't change your own role here
+    sel.title = isMe ? "You can't change your own role" : "Role";
+    sel.onchange = () => usersAction({ action: "setRole", id: u.id, role: sel.value });
+    actions.appendChild(sel);
+    const rb = el("button", "btn ghost mini");
+    rb.type = "button"; rb.textContent = "Reset password";
+    rb.onclick = () => resetUserPassword(u);
+    actions.appendChild(rb);
+    if (!isMe) {
+      const db = el("button", "btn ghost mini danger");
+      db.type = "button"; db.textContent = "Remove";
+      db.onclick = () => removeUser(u);
+      actions.appendChild(db);
+    }
+    row.appendChild(actions);
+    list.appendChild(row);
+  }
+  box.appendChild(list);
+
+  const add = el("form", "user-add");
+  add.innerHTML =
+    `<input type="text" id="newUserName" placeholder="Username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="32" />` +
+    `<input type="password" id="newUserPw" placeholder="Password" autocomplete="new-password" />` +
+    `<select id="newUserRole" aria-label="Role"><option value="viewer">Viewer</option><option value="admin">Admin</option></select>` +
+    `<button class="btn primary" type="submit" data-icon-prefix="plus">Add</button>`;
+  add.onsubmit = (e) => {
+    e.preventDefault();
+    const username = $("#newUserName").value.trim();
+    const password = $("#newUserPw").value;
+    if (!username || !password) { toast("Enter a username and a password.", "err"); return; }
+    usersAction({ action: "create", username, password, role: $("#newUserRole").value }, "Account created");
+  };
+  box.appendChild(add);
+  applyIcons(box);
+}
+async function usersAction(payload, okToast) {
+  try {
+    const r = await api("/api/users", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (r && r.ok === false) { toast(r.error || "Could not apply that change.", "err"); }
+    else if (okToast) toast(okToast, "ok");
+  } catch (e) { toast(e.message, "err"); }
+  await renderUsers();
+}
+function resetUserPassword(u) {
+  openDialog(`Reset password — ${u.name || u.username}`,
+    `<label for="dlgInput">New password</label>` +
+    `<input type="password" id="dlgInput" placeholder="New password" autocomplete="new-password" />` +
+    `<p class="muted small">They'll be signed out everywhere and must use the new password.</p>`,
+    async () => {
+      const pw = $("#dlgInput").value;
+      if (!pw) { toast("Enter a new password.", "err"); return false; }
+      await usersAction({ action: "resetPassword", id: u.id, password: pw }, "Password reset");
+    });
+}
+function removeUser(u) {
+  openDialog(`Remove ${u.name || u.username}?`,
+    `<p>This deletes <b>@${escapeHtml(u.username)}</b> and all of their resume points, ` +
+    `My List and playlists. The library files are untouched.</p>`,
+    async () => { await usersAction({ action: "delete", id: u.id }, "Account removed"); });
+}
+
 function showUi() {
   $("#playerOverlay").classList.remove("idle");
   clearTimeout(idleTimer);
@@ -2642,6 +2907,7 @@ function wire() {
   $("#keyHudToggle")?.addEventListener("change", (e) => {
     state.keyHud = e.target.checked;
     try { localStorage.setItem("kadmu_keyhud", state.keyHud ? "1" : "0"); } catch {}
+    pushPrefs();
     if (state.keyHud) flashKey(["✓"]);   // quick confirmation of the new setting
   });
   $("#addRootBtn").onclick = addRoot;
@@ -2713,8 +2979,11 @@ function wire() {
   $("#chaptersBtn")?.addEventListener("click", () => $("#chaptersMenu")?.classList.toggle("hidden"));
   $("#sleepBtn")?.addEventListener("click", () => { buildSleepMenu(); $("#sleepMenu")?.classList.toggle("hidden"); });
 
-  // viewer profiles (opt-in): topbar avatar opens the chooser; the chooser adds/switches
-  $("#profileBtn")?.addEventListener("click", showProfileChooser);
+  // top-bar avatar: the account menu in accounts mode, else the viewer-profile chooser
+  $("#profileBtn")?.addEventListener("click", () => {
+    if (state.session.accounts) toggleUserMenu();
+    else showProfileChooser();
+  });
   $("#profileAddForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const inp = $("#profileNewName");
@@ -2863,21 +3132,42 @@ function wire() {
     if (!e.target.closest("#audioBtn, #audioMenu")) $("#audioMenu")?.classList.add("hidden");
     if (!e.target.closest("#chaptersBtn, #chaptersMenu")) $("#chaptersMenu")?.classList.add("hidden");
     if (!e.target.closest("#sleepBtn, #sleepMenu")) $("#sleepMenu")?.classList.add("hidden");
+    if (!e.target.closest("#userMenu, #profileBtn")) hideUserMenu();
   });
   $("#settingsModal").addEventListener("click", e => { if (e.target.id === "settingsModal") closeSettings(); });
   $("#dialog").addEventListener("click", e => { if (e.target.id === "dialog") closeDialog(); });
 
   $("#loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const errEl = $("#loginError");
+    errEl.textContent = "";
     const pw = $("#loginPassword").value;
-    $("#loginError").textContent = "";
+    const headers = { "Content-Type": "application/json", "X-Kadmu": "1" };
     try {
-      const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json", "X-Kadmu": "1" }, body: JSON.stringify({ password: pw }) });
+      if (!state.session.accounts) {
+        const r = await fetch("/api/login", { method: "POST", headers, body: JSON.stringify({ password: pw }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.authed) { $("#loginPassword").value = ""; hideLogin(); await boot(); }
+        else errEl.textContent = d.error || "Wrong password.";
+        return;
+      }
+      const username = $("#loginUsername").value.trim();
+      const name = $("#loginName").value.trim();
+      const register = loginMode === "register";
+      const body = register ? { username, password: pw, name } : { username, password: pw };
+      const r = await fetch(register ? "/api/register" : "/api/login",
+                            { method: "POST", headers, body: JSON.stringify(body) });
       const d = await r.json().catch(() => ({}));
-      if (r.ok && d.authed) { hideLogin(); $("#loginPassword").value = ""; await boot(); }
-      else { $("#loginError").textContent = d.error || "Wrong password."; }
-    } catch { $("#loginError").textContent = "Could not reach the server."; }
+      if (r.ok && d.authed) {
+        $("#loginPassword").value = ""; $("#loginName").value = "";
+        loginMode = "login";
+        hideLogin();
+        await boot();
+      } else errEl.textContent = d.error || "Could not sign in.";
+    } catch { errEl.textContent = "Could not reach the server."; }
   });
+  $("#loginToggle")?.addEventListener("click",
+    () => setLoginMode(loginMode === "register" ? "login" : "register"));
 
   document.addEventListener("keydown", onKey);
   // Back / Forward (and pasting a #/… link into the bar) replay the route.
@@ -2999,6 +3289,7 @@ function onKey(e) {
   if (e.key === "Escape") {
     if (!$("#shortcutsModal").classList.contains("hidden")) return closeShortcuts();
     if (!$("#ctxMenu").classList.contains("hidden")) return closeContextMenu();
+    if (!$("#userMenu")?.classList.contains("hidden")) return hideUserMenu();
     if (!$("#dialog").classList.contains("hidden")) return closeDialog();
     if (!$("#settingsModal").classList.contains("hidden")) return closeSettings();
     if (state.profilesEnabled && !$("#profileOverlay").classList.contains("hidden")) return hideProfileChooser();
@@ -3145,9 +3436,23 @@ async function boot() {
     state.ccColor = localStorage.getItem("kadmu_cc_color") || "white";
     state.ccBg = localStorage.getItem("kadmu_cc_bg") || "soft";
   } catch {}
-  applyCueStyle();
   try { state.keyHud = localStorage.getItem("kadmu_keyhud") !== "0"; } catch {}   // default on
-  await loadProfiles();          // opt-in viewer profiles (shows the chooser on first run)
+  if (state.session.accounts) {
+    // accounts mode: identity-scoped prefs that follow the user across devices
+    loadAccountUi();
+    try {
+      const p = await api("/api/prefs");
+      if (p && typeof p === "object") {
+        if (p.ccSize) state.ccSize = p.ccSize;
+        if (p.ccColor) state.ccColor = p.ccColor;
+        if (p.ccBg) state.ccBg = p.ccBg;
+        if (p.keyHud != null) state.keyHud = !!Number(p.keyHud);
+      }
+    } catch {}
+  } else {
+    await loadProfiles();          // opt-in viewer profiles (shows the chooser on first run)
+  }
+  applyCueStyle();
   try { state.mylist = new Set((await api("/api/mylist")).map(i => i.path)); } catch {}
   // Learn the configured roots so URLs can read as folder names (and resolve back).
   try { state.roots = ((await api("/api/library")).folders || []).map(f => ({ name: f.name, path: f.path })); }
