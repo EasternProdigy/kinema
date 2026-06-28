@@ -1,4 +1,4 @@
-# Kadmu Cloud — Prometheus scrape config (Phase 5 observability, §8).
+# Kadmu Cloud — Prometheus scrape config (Phase 5 observability).
 #
 # Self-hosted on the ops box (docker-compose.scale.yml → `prometheus`). It scrapes the
 # /metrics each Kadmu service already exposes (Phase 3 added them to the core node) — no

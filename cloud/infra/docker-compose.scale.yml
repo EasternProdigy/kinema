@@ -3,7 +3,7 @@
 # One Docker Compose stack for the ops/control box: Caddy (TLS + sticky LB), the
 # control-plane, TWO signaling brokers behind the sticky LB, and self-hosted
 # Prometheus + Grafana. Everything is stdlib Python or an off-the-shelf binary we
-# only *run* — explicitly NOT Kubernetes/Terraform (premature for this scale, §1).
+# only *run* — explicitly NOT Kubernetes/Terraform (premature for this scale).
 #
 #   docker compose -f cloud/infra/docker-compose.scale.yml --env-file cloud/infra/.env up -d
 #
@@ -35,7 +35,7 @@ services:
       - sig2
     networks: [kadmu]
 
-  # ───────────────────────── control-plane (one box — §4) ─────────────────────────
+  # ───────────────────────── control-plane (one box) ─────────────────────────
   # Accounts, Stripe billing/webhooks, entitlements, the relay-credentials endpoint,
   # and /metrics (incl. the relay-metering series). Stays a SINGLE instance until the
   # documented Postgres + N-instance cutover (see observability/README.md runbook).
@@ -52,7 +52,7 @@ services:
       - ../..:/app:ro                          # repo mounted read-only (stdlib, no build)
       - control_plane_data:/app/cloud/control-plane/data   # SQLite (cloud.db) — writable
     networks: [kadmu]
-    # Durability: replicate cloud.db → R2 with Litestream (sidecar/cron, see §4) so a
+    # Durability: replicate cloud.db → R2 with Litestream (sidecar/cron) so a
     # box loss restores in seconds. Litestream config is out of scope for this stack.
 
   # ───────────────────────── signaling brokers (scale OUT, sticky) ─────────────────────────

@@ -1,4 +1,4 @@
-# Kadmu Cloud — Prometheus alerting rules (Phase 5, §8).
+# Kadmu Cloud — Prometheus alerting rules (Phase 5).
 #
 # The guardrails the whole cost model leans on. The headline is RelayEgressOverBudget
 # (the money alert): a FLEET backstop above the per-tenant relay caps, so a pricing
@@ -132,7 +132,7 @@ groups:
   # ───────────────────────── licensing / tenants ─────────────────────────
   - name: kadmu-licensing
     rules:
-      # Nodes refresh an offline-grace license token periodically (§4). A spike in
+      # Nodes refresh an offline-grace license token periodically. A spike in
       # refresh failures means nodes can't renew — within grace it's invisible, past it
       # playback gates (HTTP 402). Detect via 5xx on the license mint route; if a
       # dedicated failure counter is added later, prefer it.

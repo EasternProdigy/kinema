@@ -216,14 +216,22 @@ kadmu/
 ├─ scripts/        run.sh · dev.sh · demo.sh · make-sample-library.sh
 ├─ launchers/      double-click launchers for Linux / macOS / Windows
 ├─ deploy/         Dockerfile · docker-compose.yml · .env.example
-├─ docs/           CONTRIBUTING · SECURITY · CHANGELOG · NOTICE
+├─ cloud/          the (optional) hosted layer — NOT needed to self-host
+├─ docs/           start at docs/README.md (the doc index)
 ├─ install.sh      one-line installer (macOS / Linux)
 └─ install.ps1     one-line installer (Windows)
 ```
 
 Runtime state (your library config, thumbnail/remux caches, an optional bundled `bin/ffmpeg`)
-lives at the project root in `data/` and `cache/` — both git-ignored. Want to help out? See
-[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md); release history is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+lives at the project root in `data/` and `cache/` — both git-ignored.
+
+## Documentation
+
+All docs live in **[docs/](docs/README.md)** — start with the index. Highlights:
+[CONTRIBUTING](docs/CONTRIBUTING.md) · [SECURITY](docs/SECURITY.md) ·
+[CHANGELOG](docs/CHANGELOG.md) (what shipped) · [ROADMAP](docs/ROADMAP.md) (vision & future
+plans). The optional hosted edition ("Kadmu Cloud") is documented under
+[cloud/](cloud/README.md), with its go-live steps in [docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md).
 
 ## License
 

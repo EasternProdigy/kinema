@@ -1,6 +1,6 @@
 # Kadmu Cloud — CDN for the static app shell (`cloud/infra/cdn/`)
 
-Phase 5, deliverable 5 ([PHASE_5_DESIGN.md §5](../../../docs/PHASE_5_DESIGN.md)). Put
+Phase 5 ([docs/ROADMAP.md](../../../docs/ROADMAP.md)). Put
 **Cloudflare Free** in front of the app-shell origin so the only KB the cloud serves on the
 hot path — the HTML/CSS/`js/*.js`/fonts — are edge-cached globally at **$0**. Video never
 touches the cloud (that's the whole egress model), so this CDN only ever caches the shell.

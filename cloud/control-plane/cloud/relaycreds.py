@@ -1,10 +1,10 @@
 """Phase 5 seam in the control-plane: mint entitlement-bound TURN credentials and expose
 relay metering metrics.
 
-This is the adapter the design's §6.1 contract names. It imports the standalone
+This is the relay-credentials adapter (see cloud/README.md). It imports the standalone
 ``cloud/metering/`` package (by putting the repo's ``cloud/`` dir on the path — the same trick
 the connector uses to import ``wire``) so the cap logic lives in one tested place. The metering
-store is the **same** ``cloud.db`` the control-plane already backs up (PHASE_5_DESIGN §10.2),
+store is the **same** ``cloud.db`` the control-plane already backs up (see cloud/README.md),
 so there's a single DB and a single Litestream→R2 backup.
 
 Flow (``GET /api/relay-credentials``): caller is identified (dashboard session *or* tenant

@@ -1,7 +1,7 @@
 """The relay-usage store — one SQLite table, ``relay_usage`` (one row per tenant per
 billing month, plus running counters). stdlib ``sqlite3`` only.
 
-Per docs/PHASE_5_DESIGN.md §10.2 the recommended deployment points this at the **same**
+Per the shared-store design (cloud/README.md) the recommended deployment points this at the **same**
 ``cloud.db`` the 4a control-plane uses, so there's a single DB to back up (Litestream→R2).
 It can equally open its own file for isolated testing. Either way the table is created on
 demand, so adding metering never requires a migration step on the control-plane.

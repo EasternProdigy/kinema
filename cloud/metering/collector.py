@@ -3,7 +3,7 @@
 coturn exposes cumulative traffic counters on its Prometheus endpoint (default ``:9641``).
 This polls that endpoint, diffs the byte counters since the last scrape, recovers the tenant
 from the TURN username label (``<exp>:<tenant>`` — see turncreds), and feeds the delta to the
-``Meter``. Cheapest usage source per the design (§2.3): no Redis, no per-session callbacks.
+``Meter``. Cheapest usage source per the design: no Redis, no per-session callbacks.
 
 Run it next to coturn (see cloud/relay/docker-compose.yml):
     COTURN_METRICS_URL=http://127.0.0.1:9641/metrics \

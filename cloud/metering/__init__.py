@@ -5,7 +5,7 @@ open-source node (`src/kadmu/`) or the control-plane; the control-plane imports 
 adding `cloud/` to the path, the same way the connector imports `wire`) to make the relay
 allow/deny decision and mint TURN credentials, and the collector feeds it coturn usage.
 
-See docs/PHASE_5_DESIGN.md §2.
+See cloud/README.md (Scale & cost control).
 """
 from . import caps, turncreds          # noqa: F401  (convenience re-exports)
 from .meter import Meter               # noqa: F401

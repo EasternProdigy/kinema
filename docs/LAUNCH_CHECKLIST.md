@@ -7,7 +7,7 @@
 > the punch list to take it from "works on my laptop in mock mode" to "a stranger can pay and
 > watch their own library from anywhere."
 >
-> Companion docs: [PHASE_5_DESIGN.md](PHASE_5_DESIGN.md) (the why), each `cloud/*/README.md`
+> Companion docs: [ROADMAP.md](ROADMAP.md) (vision & future plans), each `cloud/*/README.md`
 > (per-service runbooks), [ROADMAP.md](ROADMAP.md) (the big picture). Self-host deployment is a
 > different, already-done path — see [../deploy/](../deploy/) and [SECURITY.md](SECURITY.md).
 
@@ -17,10 +17,10 @@ Legend: ☐ = to do · ⚠ = decision/risk · 💻 = still requires code · 🌐
 
 ## 0. Decisions to lock before spending money
 
-These drive everything downstream; settle them first (see ROADMAP §4, §6 and PHASE_5_DESIGN §10).
+These drive everything downstream; settle them first (see [ROADMAP.md](ROADMAP.md) — Open decisions).
 
 - ☐ ⚠ **Licensing** — MIT (today) vs AGPL core vs open-core (AGPL/MIT core + proprietary `cloud/`).
-  This affects whether the `cloud/` dir stays in this repo or moves to a private one. (ROADMAP §4)
+  This affects whether the `cloud/` dir stays in this repo or moves to a private one. (see ROADMAP.md — Open decisions)
 - ☐ ⚠ **Pricing shape** — confirm the $5/mo, $50/yr placeholders in
   `cloud/control-plane/cloud/const.py` (`PLANS`), and the **100 GB/mo relay cap + 720p ceiling**
   (`PLAN_RELAY_CAPS`, `relay_max_height`). Decide on a paid "relay-plus" add-on vs BYO-relay only.
@@ -30,10 +30,10 @@ These drive everything downstream; settle them first (see ROADMAP §4, §6 and P
 - ☐ ⚠ **Trial vs none**, refund window, and cancellation behavior for the pay-first gate.
 - ☐ ⚠ **TURN provider** — self-hosted coturn (what we built, cheapest) vs a managed TURN
   (Twilio/metered — simpler, per-GB). Recommend coturn.
-- ☐ ⚠ **Metadata enrichment (TMDB)** — still deliberately deferred (ROADMAP §1.3/§6.3). Decide if
+- ☐ ⚠ **Metadata enrichment (TMDB)** — still deliberately deferred (see ROADMAP.md). Decide if
   the hosted edition ships the first opt-in outbound call as a managed convenience.
 - ☐ 🌐 **Trademark + domain** — register `kadmu.app` (or chosen domain); consider a "Kadmu"
-  wordmark trademark so forks can't trade on the brand (ROADMAP §4).
+  wordmark trademark so forks can't trade on the brand (see ROADMAP.md — Open decisions).
 
 ---
 
@@ -60,7 +60,7 @@ Most of the system is done; these are the genuine remaining **code** items.
   HS256/HMAC secret today. Fine for launch; a later pass could move license signing to asymmetric
   keys so a compromised node can't forge licenses for others.
 - ☐ 💻 *(optional)* **Soft connection cap on the core node** surfaced via `/metrics`
-  (PHASE_5_DESIGN §7) so a self-hoster sees the ~100–200 concurrent ceiling.
+  ([ROADMAP.md](ROADMAP.md)) so a self-hoster sees the ~100–200 concurrent ceiling.
 
 ---
 
@@ -196,7 +196,7 @@ control-plane** (the control-plane mints credentials the relay validates).
 ## 9. Launch & post-launch
 
 - ☐ 🌐 Publish **ToS + Privacy Policy** for the account service (no content hosting ⇒ no
-  DMCA-storage duty, but you still need these — ROADMAP §5).
+  DMCA-storage duty, but you still need these — see ROADMAP.md, Cost model).
 - ☐ Wire **donations** for the OSS side (the control-plane `/donate` flow → a real Stripe one-time
   price) and add the donate button to the project README/site.
 - ☐ Open signups. Watch: relay-fallback ratio (if >~20%, investigate STUN/NAT before paying for
@@ -207,7 +207,7 @@ control-plane** (the control-plane mints credentials the relay validates).
 ## 10. Scale triggers (don't pre-build)
 
 Stay on **one** control-plane box + SQLite + Litestream until a concrete signal
-(PHASE_5_DESIGN §4/§10): e.g. control-plane p95 latency degrades, or ~5,000 tenants. Then cut over
+([ROADMAP.md](ROADMAP.md) — Scale & cost-control): e.g. control-plane p95 latency degrades, or ~5,000 tenants. Then cut over
 to managed Postgres behind the same `db.py` interface + N round-robin instances (sessions are
 already in-DB and webhooks idempotent, so it's config, not a rewrite). Scale **signaling** out
 first (more cheap brokers behind the sticky LB); scale **relay** vertically (bigger NIC) before

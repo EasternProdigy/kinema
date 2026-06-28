@@ -353,7 +353,7 @@ class Handler(BaseHTTPRequestHandler):
         (STUN-only) when the plan grants no relay / the cap is reached / the sub is inactive.
         Two callers, two auth paths: the node's connector proves possession of the tenant
         secret (tenant/ts/sig, same scheme as /api/license); the owner's browser uses its
-        dashboard session. See cloud/metering/ and PHASE_5_DESIGN §2.2/§6.1."""
+        dashboard session. See cloud/metering/ and cloud/README.md (Scale & cost control)."""
         now = time.time()
         t = (qs.get("tenant") or [""])[0]
         ts = (qs.get("ts") or [""])[0]

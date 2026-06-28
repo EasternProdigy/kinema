@@ -2,9 +2,9 @@
 
 This is the rule the control-plane consults inside ``GET /api/relay-credentials`` before
 minting a TURN credential. No credential ⇒ no relay allocation, so denying here is what keeps
-relay egress from ever blowing the budget (docs/PHASE_5_DESIGN.md §2).
+relay egress from ever blowing the budget (see cloud/README.md "Scale & cost control").
 
-The caps below are the design's starting points (§2.4); the control-plane can override them
+The caps below are the design's starting points; the control-plane can override them
 from its plan catalog (``PLANS[plan]["relay_cap_bytes"]``) so pricing changes don't need a
 metering deploy. Quality is capped *separately* by the connector (``RELAY_MAX_HEIGHT``) so a
 relayed stream is ≤720p — together they bound worst-case egress per tenant.

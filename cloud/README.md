@@ -6,7 +6,7 @@ It is **NOT shipped to self-hosters** and is never required to run the open-sour
 The whole product stays open and unlocked; Cloud monetizes **convenience and
 infrastructure**, never features. Critically, **the cloud never stores or pipes your
 video** — files stay on your machine. Our servers only host the *account, billing,
-and the connection handshake*, which keeps egress ≈ $0 (see ROADMAP §5).
+and the connection handshake*, which keeps egress ≈ $0 (see docs/ROADMAP.md — Cost model).
 
 ```
 cloud/
@@ -21,7 +21,7 @@ cloud/
 > `pip install`. Nothing in this directory is imported by the core. The control-plane and the
 > signaling broker are themselves **stdlib-only**; the one unavoidable third-party dependency —
 > `aiortc`, for real WebRTC — is quarantined to the connector (see [requirements.txt](requirements.txt)),
-> exactly the "what can't be stdlib lives in `cloud/`" split from ROADMAP §1.
+> exactly the "what can't be stdlib lives in `cloud/`" split from docs/ROADMAP.md.
 
 ---
 
@@ -86,7 +86,7 @@ route with HTTP 402**. Default self-host (no cloud config) is never gated.
 ## Remote-from-anywhere — Phase 4b (P2P / WebRTC)
 
 The headline Cloud upgrade: **watch your home library from anywhere, with the video
-streaming peer-to-peer so our egress stays ≈ $0** (ROADMAP §5). The core needs **zero
+streaming peer-to-peer so our egress stays ≈ $0** (docs/ROADMAP.md — Cost model). The core needs **zero
 changes** to be reachable remotely — the connector talks to it as a localhost client.
 
 ### The shape
@@ -140,7 +140,7 @@ bytes 5..  REQ/RES/ABORT → UTF-8 JSON head;  DATA → raw body bytes;  END →
 `remote.js` reimplements this exact byte layout in JS; the two are kept in lockstep, and the
 Python side is unit-tested so drift surfaces immediately.
 
-### Relay / TURN policy (ROADMAP §5 — the one place egress can leak)
+### Relay / TURN policy (the one place egress can leak)
 
 - **Direct P2P (STUN):** ~80–90% of networks. Cloud egress = the KB of handshake. This is the
   default; the connector ships only a public STUN server.
@@ -148,7 +148,7 @@ Python side is unit-tested so drift surfaces immediately.
   ours, so it's **never the default**. TURN is added only when explicitly configured
   (`KADMU_TURN_URL`), and the plan is to treat it as a **capped, paid add-on / BYO-relay** —
   *never* "tunnel all video through us." The connector's `_ice_servers()` encodes this: STUN
-  always, TURN only on opt-in. Phase 5 ([docs/PHASE_5_DESIGN.md](../docs/PHASE_5_DESIGN.md))
+  always, TURN only on opt-in. Phase 5 ([docs/ROADMAP.md](../docs/ROADMAP.md))
   specifies the capped coturn relay + per-plan byte caps that back this policy.
 
 ### Entitlement — the Phase 4a seam
@@ -218,9 +218,9 @@ peers + a browser + a TURN server:
 
 ## Scale & cost control — Phase 5 (built)
 
-Phase 5 keeps the §5 cost model (`video never touches our servers`) holding as tenants are
-added, and **caps the one place egress can leak** — the TURN relay. Full design + the cap math
-live in [docs/PHASE_5_DESIGN.md](../docs/PHASE_5_DESIGN.md); this is what shipped.
+Phase 5 keeps the cost model (`video never touches our servers`) holding as tenants are
+added, and **caps the one place egress can leak** — the TURN relay. The cost model + cap rationale
+live in [docs/ROADMAP.md](../docs/ROADMAP.md); this is what shipped.
 
 | Piece | Where | What it does |
 |---|---|---|

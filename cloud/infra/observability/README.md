@@ -1,6 +1,6 @@
 # Kadmu Cloud — observability & autoscale (`cloud/infra/observability/`)
 
-Self-hosted Prometheus + Grafana on the ops box (Phase 5, [PHASE_5_DESIGN.md §8](../../../docs/PHASE_5_DESIGN.md)).
+Self-hosted Prometheus + Grafana on the ops box (Phase 5, [docs/ROADMAP.md](../../../docs/ROADMAP.md)).
 No managed-APM per-host bill — we scrape the `/metrics` every Kadmu service already
 exposes (Phase 3 added them to the core node) and alert on the one thing that costs real
 money: **relay egress**.
@@ -74,7 +74,7 @@ docker compose -f cloud/infra/docker-compose.scale.yml --env-file cloud/infra/.e
 
 ## Autoscale runbook
 
-Per [PHASE_5_DESIGN.md §7–§8](../../../docs/PHASE_5_DESIGN.md) each tier scales differently.
+Per [docs/ROADMAP.md](../../../docs/ROADMAP.md) each tier scales differently.
 The cheap correct moves, in order of when you'll need them:
 
 ### Signaling — scale **OUT** (cheap, do this first)
@@ -99,7 +99,7 @@ Either way the sticky key holds: Caddy pins each session's **guest + host** to o
 by hashing `X-Kadmu-Node` (`lb_policy header X-Kadmu-Node`), so **no shared state** is
 needed — adding a broker only reshuffles a fraction of node→instance mappings (consistent
 hash). A shared bus (Redis pub/sub / Postgres `LISTEN/NOTIFY`) is the *later* path only if
-one box genuinely can't hold the long-poll fan-out — documented in §3, not built.
+one box genuinely can't hold the long-poll fan-out — documented in docs/ROADMAP.md, not built.
 
 ### Relay (coturn) — scale **VERTICALLY first**
 
@@ -118,7 +118,7 @@ and **offline license tokens** (24 h TTL / 7-day grace) keep nodes off the contr
 per request — so brief downtime is invisible to playback. Keep it a single SQLite instance
 made durable by **Litestream → R2**, not distributed.
 
-**Cutover trigger (pick a concrete signal, not vibes — §4/§10):** move to **managed
+**Cutover trigger (pick a concrete signal, not vibes — see docs/ROADMAP.md):** move to **managed
 Postgres + N identical instances behind Caddy round-robin** when *either*:
 - **p95 control-plane request latency** (derived from `kadmu_requests_total` + a latency
   histogram once added) stays above **~250 ms** for a sustained period, **or**

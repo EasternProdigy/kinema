@@ -61,7 +61,7 @@ else:
 # Phase 5: each plan carries its relay budget. `relay_cap_bytes` is the monthly TURN-relay
 # egress a tenant on this plan may use before the credential endpoint starts refusing relay
 # (P2P still works — see cloud/metering/caps.py); 0 ⇒ the plan grants no relay. `relay_max_height`
-# is the quality ceiling the connector clamps to on a relay candidate pair (cloud/metering caps §2.4).
+# is the quality ceiling the connector clamps to on a relay candidate pair (cloud/metering/caps.py).
 _GiB = 1024 ** 3
 PLANS = {
     "monthly": {
@@ -97,7 +97,7 @@ PLAN_RELAY_CAPS = {pid: p.get("relay_cap_bytes", 0) for pid, p in PLANS.items()}
 # TURN relay (Phase 5). The relay itself lives in cloud/relay/ (coturn); the
 # control-plane only *mints* short-lived, entitlement-bound credentials it can
 # validate (coturn shares TURN_SECRET). All optional: with no TURN_URLS the relay
-# endpoint returns STUN-only and the browser stays P2P-only. See PHASE_5_DESIGN §2.
+# endpoint returns STUN-only and the browser stays P2P-only. See cloud/README.md (Scale & cost control).
 # --------------------------------------------------------------------------- #
 TURN_SECRET = os.environ.get("KADMU_TURN_SECRET", "")
 TURN_URLS = [u.strip() for u in os.environ.get("KADMU_TURN_URLS", "").split(",") if u.strip()]

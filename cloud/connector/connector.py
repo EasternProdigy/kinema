@@ -54,7 +54,7 @@ LOCAL_PORT = int(os.environ.get("KADMU_LOCAL_PORT", "8000"))
 
 # Phase 5 cloud-attach (optional): when the control-plane URL + tenant + secret are set, the
 # connector fetches entitlement-bound TURN credentials from it instead of static env TURN config
-# (so an over-budget/inactive tenant gets STUN-only). See cloud/metering + PHASE_5_DESIGN §6.2.
+# (so an over-budget/inactive tenant gets STUN-only). See cloud/metering + cloud/README.md.
 CLOUD_URL = os.environ.get("KADMU_CLOUD_URL", "").rstrip("/")
 CLOUD_TENANT = os.environ.get("KADMU_CLOUD_TENANT", "")
 CLOUD_SECRET = os.environ.get("KADMU_CLOUD_SECRET", "")
@@ -84,7 +84,7 @@ def _fetch_cloud_ice():
 
 def _ice_servers():
     """STUN (public, free) gets ~80-90% of networks connected directly. TURN is the capped
-    fallback per ROADMAP §5 — added only from cloud-minted, entitlement-bound credentials, or
+    fallback per the cost model (docs/ROADMAP.md) — added only from cloud-minted, entitlement-bound credentials, or
     from explicit static env config. We never default to relaying all video."""
     info = _fetch_cloud_ice()
     if info and info.get("iceServers"):
@@ -105,7 +105,7 @@ def _ice_servers():
 
 
 def _clamp_to_relay_ceiling(path):
-    """Rewrite a media request so a relayed stream stays ≤ RELAY_MAX_HEIGHT (the §2.4 quality
+    """Rewrite a media request so a relayed stream stays ≤ RELAY_MAX_HEIGHT (the relay quality
     cap). Routes /stream and /transcode through the transcode ladder with a capped height;
     the core downscales-only, so sub-ceiling sources are untouched. coturn's per-session
     max-bps is the hard backstop regardless; this just avoids wasting the relay on 4K."""
@@ -125,7 +125,7 @@ def _clamp_to_relay_ceiling(path):
 # ─────────────────────────── signaling (long-poll over stdlib http) ───────────────────────────
 
 # X-Kadmu-Node pins both peers of a session to one broker instance behind a sticky LB
-# (cloud/infra/Caddyfile: `lb_policy header X-Kadmu-Node`) — zero shared state. See §3.
+# (cloud/infra/Caddyfile: `lb_policy header X-Kadmu-Node`) — zero shared state. See docs/ROADMAP.md.
 _SIG_HEADERS = {"Content-Type": "application/json", "X-Kadmu-Node": NODE_ID}
 
 
@@ -216,7 +216,7 @@ class Session:
         headers = dict(meta.get("headers") or {})
         headers["Host"] = f"{LOCAL_HOST}:{LOCAL_PORT}"       # satisfy host allow-listing
         path = meta.get("path", "/")
-        if self._on_relay():                                 # cap quality on the relay (§2.4)
+        if self._on_relay():                                 # cap quality on the relay
             path = _clamp_to_relay_ceiling(path)
         conn = http.client.HTTPConnection(LOCAL_HOST, LOCAL_PORT, timeout=30)
         conn.request(meta.get("method", "GET"), path, headers=headers)

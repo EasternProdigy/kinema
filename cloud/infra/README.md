@@ -3,7 +3,7 @@
 Deployment + operations for the hosted layer — **Phase 5** (scale & cost control),
 config-as-code only. The whole hosted control plane runs on **Docker Compose + Caddy**,
 self-hosted Prometheus/Grafana, and **Cloudflare Free** — explicitly **not**
-Kubernetes/Terraform yet (premature for this scale; see [PHASE_5_DESIGN.md §1](../../docs/PHASE_5_DESIGN.md)).
+Kubernetes/Terraform yet (premature for this scale; see [docs/ROADMAP.md](../../docs/ROADMAP.md)).
 
 > No third-party runtime deps in our own code: the control-plane and signaling broker are
 > stdlib-only. The only binaries we *run* (not author) are Caddy, coturn, Prometheus, and
@@ -37,7 +37,7 @@ the public `https://cloud.kadmu.app` so Stripe redirects + dashboard links are c
 
 ## The cost model (~$10–11/mo fixed)
 
-The architecture keeps **video off our servers** (P2P, ROADMAP §5), so the only spend is a
+The architecture keeps **video off our servers** (P2P; see docs/ROADMAP.md — Cost model), so the only spend is a
 thin control plane plus a hard-capped relay:
 
 | Concern | Choice | ~Cost |

@@ -3,7 +3,7 @@
 A control-plane creates one ``Meter`` (pointed at the shared ``cloud.db``) and uses it for
 both the relay decision (``allowed``) and recording (``record``); the collector uses the same
 ``record`` to attribute coturn bytes. The Prometheus output (``render_metrics``) is what
-``cloud/infra/observability`` scrapes and what the §2.5 budget alert fires on.
+``cloud/infra/observability`` scrapes and what the budget alert fires on.
 """
 from __future__ import annotations
 

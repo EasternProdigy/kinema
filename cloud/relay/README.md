@@ -7,7 +7,7 @@ other working candidate, and only if the tenant's plan and remaining budget allo
 it. This is the single place where the cloud's egress can leak, so it ships with
 metering and per-plan byte caps from day one (never the relay without the caps).
 
-Full design: [docs/PHASE_5_DESIGN.md](../../docs/PHASE_5_DESIGN.md) §2 (2.1-2.5).
+Design & cost model: [docs/ROADMAP.md](../../docs/ROADMAP.md).
 Background on the relay policy: [cloud/README.md](../README.md) "Relay / TURN policy".
 
 This directory is **config-as-code only** — a coturn config, a Compose stack, and
@@ -45,7 +45,7 @@ username = "<expiry-unix-timestamp>:<tenant-id>"
 password = base64( HMAC-SHA1( static-auth-secret, username ) )
 ```
 
-The flow (design §2.2):
+The flow:
 
 1. Right before connecting, the browser asks the control-plane (4a):
    `GET /api/relay-credentials` (authed, tenant-bound).
@@ -64,7 +64,7 @@ is enforced *before* bytes flow, not cleaned up after. The same `static-auth-sec
 
 ---
 
-## The per-plan cap model (design §2.4)
+## The per-plan cap model
 
 Relay carries **video**, so the caps are set against a real egress budget:
 
@@ -100,10 +100,10 @@ meter-collector (cloud/metering/collector.py) ── diff bytes, attribute per t
 ```
 
 - **Control-plane** ↔ relay: shares `TURN_SECRET`; mints creds at
-  `GET /api/relay-credentials`. (See [docs/PHASE_5_DESIGN.md](../../docs/PHASE_5_DESIGN.md) §6.1.)
+  `GET /api/relay-credentials`. (See [docs/ROADMAP.md](../../docs/ROADMAP.md).)
 - **Metering** ↔ relay: the collector reads coturn's `:9641/metrics`. Usage lands
   in the shared `cloud.db` so the control-plane's `relay_allowed()` sees it next
-  time (design §2.3, §10.2 — one store, one Litestream backup).
+  time (one store, one Litestream backup).
 
 ---
 
@@ -123,7 +123,7 @@ media between two public-internet peers it was given a valid credential for.
 
 ## BYO-relay escape valve
 
-A tenant can point at **their own** coturn instead of ours (design §2.4, third
+A tenant can point at **their own** coturn instead of ours (the third
 escape valve). In that case the control-plane's credential endpoint returns the
 tenant's server in `iceServers`, and **none of their relayed bytes are our egress**
 — so a heavy relay user can self-host the cost. This relay is for the default,
@@ -157,7 +157,7 @@ user; a valid ephemeral credential from the control-plane is the only way in.
 
 This is config-as-code; the relay needs a home and some one-time wiring:
 
-1. **A separate small VPS** for the relay (design §1 keeps it isolated from the
+1. **A separate small VPS** for the relay (keeps it isolated from the
    control-plane so the only egress source is contained — ~$5/mo). Install Docker.
 2. **DNS** — point an **A record** for `turn.kadmu.app` (your `TURN_REALM`) at the
    VPS's public IP.

@@ -10,7 +10,7 @@
 #   docker compose up -d
 #
 # Runs cheap: both services idle near-zero CPU until a hostile-NAT session needs
-# the relay. See docs/PHASE_5_DESIGN.md §2 and cloud/relay/README.md.
+# the relay. See cloud/relay/README.md and docs/ROADMAP.md.
 # ============================================================================
 
 services:
@@ -78,7 +78,7 @@ services:
       # cannot live here (read-only mount) — it lives on the writable volume below.
       - ../..:/app:ro
       # Writable volume for the SQLite DB. IMPORTANT: this SHOULD be the SAME
-      # cloud.db the control-plane uses (Phase 5 shared-store, design §2.2/§10.2)
+      # cloud.db the control-plane uses (Phase 5 shared-store)
       # — bind-mount the control-plane's data dir here in production instead of
       # this named volume, so cap decisions and metering read/write one store.
       - meter-data:/data

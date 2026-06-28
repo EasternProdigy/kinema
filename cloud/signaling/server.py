@@ -1,6 +1,6 @@
 """Kadmu Phase 4b — the signaling broker (the *only* thing the cloud runs in the hot path).
 
-Per the roadmap's cost model (docs/ROADMAP.md §5), the cloud must **never touch the video
+Per the roadmap's cost model (docs/ROADMAP.md), the cloud must **never touch the video
 bytes** — it brokers only the WebRTC handshake. This is that broker: a dumb, stateless-ish
 relay that passes opaque SDP offers/answers and ICE candidates between a browser **guest**
 and a home **host** (the connector) so they can open a peer-to-peer connection and stream
@@ -197,7 +197,7 @@ class SignalHandler(BaseHTTPRequestHandler):
 
     def _metrics(self):
         """Prometheus exposition for cloud/infra/observability — live peers/hosts and
-        cumulative registrations/messages. The autoscale signal scales brokers out (§3.1)."""
+        cumulative registrations/messages. The autoscale signal scales brokers out."""
         s = HUB.stats()
         body = (
             "# HELP kadmu_signal_peers Currently-registered signaling peers.\n"

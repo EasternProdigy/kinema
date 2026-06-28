@@ -32,7 +32,7 @@ kadmu/
 ├─ cloud/          the HOSTED layer — NOT shipped to self-hosters (Phase 4–5: control-plane,
 │                  signaling, connector, metering, relay, infra; see cloud/README.md)
 ├─ deploy/         Dockerfile · docker-compose.yml · .env.example
-├─ docs/           CONTRIBUTING · SECURITY · CHANGELOG · NOTICE · ROADMAP · BRAND.md + brand/
+├─ docs/           README (index) · CONTRIBUTING · SECURITY · CHANGELOG · ROADMAP · LAUNCH_CHECKLIST · NOTICE · BRAND.md + brand/
 ├─ install.sh / install.ps1   one-line installers (curl|bash / irm|iex)
 ├─ CLAUDE.md · README.md · LICENSE
 └─ (runtime, git-ignored) data/  cache/  bin/    ← at the PROJECT ROOT, not in src/

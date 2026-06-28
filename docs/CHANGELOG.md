@@ -62,7 +62,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   are wired separately (one-time Checkout, no account needed).
 - **Remote-from-anywhere over P2P (Phase 4b, built).** A new `cloud/` peer-to-peer layer —
   **not shipped to self-hosters** — that lets you reach your home library from anywhere with the
-  **video streaming browser↔node directly, so our egress stays ≈ $0** (ROADMAP §5). The cloud is
+  **video streaming browser↔node directly, so our egress stays ≈ $0** (see ROADMAP.md — Cost model). The cloud is
   only a **handshake broker**: a stdlib **signaling server** passes one WebRTC offer/answer
   between a guest browser and the home **connector**, then gets out of the way. From there
   [`cloud/wire.py`](../cloud/wire.py) tunnels the node's HTTP — the `api()` calls *and* the
@@ -73,7 +73,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   path for remote video are the integration follow-ups (see [cloud/README.md](../cloud/README.md)).
   The open-source core stays **stdlib-only** — the lone WebRTC dependency (`aiortc`) is
   quarantined to the connector in `cloud/`, and the core needs zero changes to be reachable.
-- **Scale & cost control (Phase 5, built).** The whole [PHASE_5_DESIGN](PHASE_5_DESIGN.md) is now
+- **Scale & cost control (Phase 5, built).** The whole [Phase 5 design](ROADMAP.md) is now
   implemented as code + config-as-code under `cloud/` (the open-source core is untouched bar one
   opt-in flag). The heart is the **cost guardrail**: a stdlib **`cloud/metering/`** package
   (21 unit tests) that meters relay bytes per tenant per month, enforces a per-plan cap, and
