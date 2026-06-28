@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import archive, cloud, ops, rt
+from . import archive, cloud, ops, rt, sources
 from .const import (
     APP_NAME, APP_VERSION, FFMPEG, MIME, MP4_COPY_ACODECS, MP4_COPY_VCODECS,
     NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES, REQUEST_TIMEOUT, SESSIONS,
@@ -63,6 +63,7 @@ STATIC_FILES = {
     "/qr.js": ("qr.js", "application/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+    "/tmdb-logo.svg": ("tmdb-logo.svg", "image/svg+xml"),   # TMDB attribution mark
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json; charset=utf-8"),
     "/sw.js": ("sw.js", "application/javascript; charset=utf-8"),
 }
@@ -447,6 +448,43 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
 
+    def _serve_remote_stream(self, ref):
+        """Range-proxy a Tier-2 remote file: open a (ranged) GET upstream and relay the
+        status + headers + body to the client. The node pulls; the bytes pass through us
+        (model A) but are never stored. Forwards the client's Range so seeking works for
+        servers that honour it."""
+        try:
+            resp, status, hd = sources.open_stream(ref, self.headers.get("Range"))
+        except sources.SourceError as e:
+            return self._send_json({"error": str(e)}, 502)
+        if status == 416:
+            self.send_response(416)
+            self.send_header("Content-Range", "bytes */*")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        try:
+            self.send_response(status)
+            for k, v in hd.items():
+                self.send_header(k, v)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command == "HEAD":
+                return
+            while True:
+                data = resp.read(256 * 1024)
+                if not data:
+                    break
+                self.wfile.write(data)
+                self._wrote(len(data))
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass                            # client seeked / closed the tab
+        finally:
+            try:
+                resp.close()
+            except (OSError, AttributeError):
+                pass
+
     def _serve_static(self, route):
         name, ctype = STATIC_FILES[route]
         fp = WEB_DIR / name
@@ -781,7 +819,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._placeholder_thumb()
 
         if route == "/api/stream":
-            path = resolve_within_roots(unquote(qs.get("path", [""])[0]))
+            raw_path = unquote(qs.get("path", [""])[0])
+            if sources.is_ref(raw_path):       # a Tier-2 remote source: range-proxy it
+                return self._serve_remote_stream(raw_path)
+            path = resolve_within_roots(raw_path)
             if not path or not path.is_file():
                 return self._send_json({"error": "not found"}, 404)
             ext = path.suffix.lower()
@@ -838,6 +879,17 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/api/archive":
             return self._send_json(archive.status())
+
+        if route == "/api/sources":               # Tier-2 remote sources (list; no secrets)
+            return self._send_json({"sources": sources.list_sources()})
+
+        if route == "/api/rbrowse":               # browse one folder of a remote source
+            sid = qs.get("src", [""])[0]
+            rel = unquote(qs.get("path", [""])[0])
+            data = sources.browse(sid, rel)
+            if data is None:
+                return self._send_json({"error": "unknown source"}, 404)
+            return self._send_json(data)
 
         if route == "/api/recommendations":
             return self._send_json(recommend_for_viewer())
@@ -1349,6 +1401,23 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_writable() or not self._require_admin():
                 return
             return self._send_json(archive.cancel(body.get("id")))
+
+        # Manage Tier-2 remote sources (add / remove / test). Library config → admin + writable.
+        if route == "/api/sources":
+            if not self._require_writable() or not self._require_admin():
+                return
+            action = body.get("action")
+            if action == "add":
+                return self._send_json(sources.add_source(
+                    body.get("name"), body.get("type"), body.get("url"),
+                    body.get("username", ""), body.get("password", "")))
+            if action == "remove":
+                return self._send_json(sources.remove_source(body.get("id")))
+            if action == "test":
+                return self._send_json(sources.test_source({
+                    "type": body.get("type"), "url": (body.get("url") or "").strip().rstrip("/") + "/",
+                    "username": body.get("username", ""), "password": body.get("password", "")}))
+            return self._send_json({"ok": False, "error": "Unknown action."}, 400)
 
         return self._send_json({"error": "not found"}, 404)
 

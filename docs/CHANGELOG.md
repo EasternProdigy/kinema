@@ -19,8 +19,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - **Stream from cloud / remote storage.** Point Kadmu at media on Dropbox, Google Drive, MEGA,
   S3/B2, a NAS, or your own server — mount it as a folder (provider app or rclone) and add it
   in *Settings → Add cloud / remote storage…*. Your video still streams through your node, never
-  our servers. Full guide in [REMOTE_STORAGE.md](REMOTE_STORAGE.md). (Native, no-mount remote
-  sources are the planned Tier 2 — see [ROADMAP.md](ROADMAP.md).)
+  our servers. Full guide in [REMOTE_STORAGE.md](REMOTE_STORAGE.md).
+- **Native remote sources (no mounting).** Connect an **HTTP** (directory-listing) or **WebDAV**
+  server directly in *Settings → Remote sources → Connect a server…* (with Test). Kadmu lists it
+  and **range-proxies playback through your node** — stdlib `urllib` only, no new deps, with an
+  anti-SSRF guard (no cross-host redirects). Native containers play directly; the bytes never
+  touch our servers. S3-compatible + Drive/Dropbox (OAuth) and remote remux are the next steps.
 - **A VLC-grade "Tune" sheet in the player (`T`).** One tidy tray gathers the new power-user
   controls so the bar stays clean: **video** — brightness / contrast / saturation, rotate,
   flip, zoom and a Fit/Crop/Stretch aspect mode (all non-destructive CSS); **audio** — a

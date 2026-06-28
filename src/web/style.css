@@ -794,6 +794,12 @@ hr { border: none; border-top: 1px solid var(--line); margin: 18px 0; }
   border-radius: var(--radius); padding: 9px 11px; font: inherit; font-size: 13.5px; }
 .tmdb-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 11px; }
 
+/* TMDB attribution (required: official logo + disclaimer) */
+.tmdb-attrib { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; margin-top: 12px; }
+.tmdb-attrib-logo { height: 15px; width: auto; display: block; flex-shrink: 0; }
+.reco-foot { margin: 6px 2px 2px; }
+.discover-dlg .tmdb-attrib { margin-top: 14px; }
+
 /* add cloud / remote storage dialog */
 .remote-intro { line-height: 1.5; margin-bottom: 14px; }
 .remote-intro a { color: var(--orange); }
@@ -1625,6 +1631,17 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
   border: 1px solid var(--orange); box-shadow: 0 1px 4px rgba(0,0,0,.3);
 }
 .title-card .archive-flag svg { width: 13px; height: 13px; }
+
+/* Tier-2 remote sources: settings rows + browse modal */
+.src-type { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--orange); background: rgba(238,103,34,.12); padding: 1px 6px; border-radius: 5px; margin-left: 4px; }
+.root-row .btn.mini { padding: 5px 11px; font-size: 12.5px; }
+.rb-wrap { min-height: 120px; max-height: 52vh; overflow: auto; }
+.rb-file { justify-content: flex-start; }
+.rb-file .rb-play { margin-left: auto; display: inline-flex; }
+.rb-file .rb-play svg { width: 15px; height: 15px; }
+.rb-file.disabled { opacity: .55; cursor: default; }
+.rb-file.disabled .muted { margin-left: auto; }
 
 /* archive (reclaim disk) control on the title detail page */
 .title-archive { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 4px; }

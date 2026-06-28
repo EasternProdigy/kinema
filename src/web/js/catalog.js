@@ -58,7 +58,23 @@ async function renderRecommendations() {
     wrap.appendChild(grid);
     sec.appendChild(wrap);
   }
+  // TMDB attribution — required wherever we show their data/images (genres, posters,
+  // discovery). Only shown when the metadata layer is actually on.
+  if (data && data.tmdb) {
+    const foot = el("div", "reco-foot");
+    foot.innerHTML = tmdbAttribution();
+    sec.appendChild(foot);
+  }
   sec.classList.remove("hidden");
+}
+
+// The TMDB attribution block (official logo + the disclaimer TMDB requires). Reused
+// on the recommendation rail, the discover dialog, and the settings panel.
+function tmdbAttribution() {
+  return `<a class="tmdb-attrib" href="https://www.themoviedb.org/" target="_blank" rel="noopener" title="Powered by TMDB">
+      <img class="tmdb-attrib-logo" src="/tmdb-logo.svg" alt="TMDB" />
+      <span class="muted small">This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
+    </a>`;
 }
 
 /* ===================== recommendation transparency + tuning panel ===================== */
@@ -246,6 +262,7 @@ function openDiscover(it) {
         ${it.why ? `<div class="discover-why">${escapeHtml(it.why)}</div>` : ""}
         ${it.overview ? `<p class="discover-overview">${escapeHtml(it.overview)}</p>` : ""}
         <p class="muted small">Not in your library yet. Find it through your usual channels, add the file to a Kadmu folder, and it'll play here.</p>
+        ${tmdbAttribution()}
       </div>
     </div>`, () => {
     if (it.tmdbUrl) window.open(it.tmdbUrl, "_blank", "noopener");

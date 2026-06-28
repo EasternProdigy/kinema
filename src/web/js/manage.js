@@ -285,6 +285,10 @@ let dialogOkHandler = null;
 function openDialog(title, bodyHtml, onOk) {
   $("#dialogTitle").textContent = title;
   $("#dialogBody").innerHTML = bodyHtml;
+  // reset the footer to a clean state (a prior dialog may have hidden OK or injected
+  // extra action buttons — e.g. the remote-browser hides OK, the source dialog adds Test)
+  $$("#dialog .dlg-extra").forEach(b => b.remove());
+  $("#dialogOk").classList.remove("hidden");
   $("#dialogOk").disabled = false;
   $("#dialogOk").textContent = "OK";
   dialogOkHandler = onOk;

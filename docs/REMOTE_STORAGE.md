@@ -87,17 +87,28 @@ decryption and hands Kadmu a plain folder. That's the supported path, and the UI
 
 ---
 
-## Tier 2 — native remote sources (roadmap)
+## Tier 2 — native remote sources (no mounting)
 
-A future increment lets you add a **remote source inside Kadmu** — no mounting — for the
-storage that speaks plain HTTP:
+You can also add a **remote source inside Kadmu** — no mounting — for storage that speaks
+plain HTTP. Open *Settings → Remote sources → Connect a server…*, give it a URL, hit
+**Test**, then **Add**; it appears with a **Browse** button. Kadmu lists the server and
+**range-proxies playback through your node** (the bytes pass through your machine, never
+ours — model A), so it needs no third-party libraries (just `urllib`).
 
-- **Your own server** (HTTP with byte-range, or WebDAV)
-- **S3-compatible** object storage (R2 / B2 / Wasabi / MinIO)
-- **Google Drive / Dropbox** (their REST APIs + OAuth)
+**Available now:**
+- **Your own server** — an HTTP directory-listing server (nginx/Apache autoindex, or
+  `python3 -m http.server`), or **WebDAV**. For seeking, the server must answer HTTP range
+  requests (most do). **Native containers (mp4/webm/…) play directly**; other containers are
+  listed but flagged "needs mount" for now (a remote remux is the next increment).
 
-These are all "HTTP with range requests," which the backend can do with `urllib` +
-`hmac`/`hashlib` — **still no third-party dependencies**. Kadmu would list the source,
-range-proxy playback through the node, and feed ffmpeg the (signed) URL directly, with a
-small local cache for thumbnails and seeking. MEGA stays Tier-1-only, for the reason
-above. Tracked in [ROADMAP.md](ROADMAP.md).
+**Planned next:**
+- **S3-compatible** object storage (R2 / B2 / Wasabi / MinIO) — SigV4 over `urllib`/`hmac`.
+- **Google Drive / Dropbox** (REST + OAuth).
+- Remote **remux/transcode** (feed ffmpeg the proxied URL) so non-native remote files play,
+  and folding remote titles into the Shows/Movies catalog (today they live in their own
+  Browse surface).
+
+**MEGA stays Tier-1-only** — it's end-to-end encrypted and the stdlib has no AES, so an
+app-less reader can't be pure-stdlib. Use a mount (above).
+
+Tracked in [ROADMAP.md](ROADMAP.md).

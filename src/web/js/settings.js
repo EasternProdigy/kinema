@@ -16,6 +16,10 @@ async function openSettings() {
   const libSec = $("#rootList")?.closest(".settings-section");
   if (libSec) libSec.classList.toggle("hidden", state.session.accounts && !state.session.canManage);
   if (state.session.canManage) await renderRoots();
+  // Remote sources (native, no mount) — admin-only management, like library folders.
+  const srcSec = $("#sourcesSection");
+  if (srcSec) srcSec.classList.toggle("hidden", state.session.accounts && !state.session.canManage);
+  if (typeof renderRemoteSources === "function" && state.session.canManage) await renderRemoteSources();
   await renderTmdb();       // TMDB metadata + discovery (admins/owner only)
   renderAccount();          // your own account (accounts mode)
   await renderUsers();      // people management (admins, accounts mode)
@@ -154,7 +158,8 @@ function renderTmdbControl(st) {
       <button class="btn" id="tmdbMatch">Match my library</button>
       <button class="btn ghost" id="tmdbRematch">Re-match everything</button>
       <span id="tmdbMsg" class="muted small"></span>
-    </div>` : ""}`;
+    </div>` : ""}
+    ${enabled ? tmdbAttribution() : ""}`;
   $("#tmdbKeySave").onclick = () => saveTmdbKey($("#tmdbKeyInput").value);
   $("#tmdbKeyInput").addEventListener("keydown", e => { if (e.key === "Enter") saveTmdbKey(e.target.value); });
   const clr = $("#tmdbKeyClear"); if (clr) clr.onclick = () => saveTmdbKey("");

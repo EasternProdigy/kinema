@@ -391,6 +391,22 @@
           <div id="settingsStatus" class="settings-status muted small"></div>
         </section>
 
+        <!-- Remote sources (native, no mount): HTTP / WebDAV servers Kadmu range-proxies -->
+        <section class="settings-section" id="sourcesSection">
+          <div class="section-head">
+            <span class="section-ic" data-icon="globe" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>Remote sources</h4>
+              <p class="muted small">Stream from your own HTTP/WebDAV server with no mounting — the bytes range-proxy through this node, never our servers.</p>
+            </div>
+            <span class="section-count" id="sourcesCount"></span>
+          </div>
+          <div id="sourcesList" class="root-list"></div>
+          <div class="add-root">
+            <button class="btn" id="addSourceBtn" data-icon-prefix="globe">Connect a server…</button>
+          </div>
+        </section>
+
         <!-- Discovery & recommendations (TMDB metadata) -->
         <section class="settings-section" id="tmdbSection">
           <div class="section-head">
@@ -540,6 +556,7 @@
   <script src="/js/home.js"></script>
   <script src="/js/catalog.js"></script>
   <script src="/js/archive.js"></script>
+  <script src="/js/sources.js"></script>
   <script src="/js/manage.js"></script>
   <script src="/js/settings.js"></script>
   <script src="/js/accounts.js"></script>

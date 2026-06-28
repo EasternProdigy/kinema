@@ -21,6 +21,7 @@ function wire() {
   $("#addRootBtn").onclick = addRoot;
   $("#browseRootBtn").onclick = addFolder;
   { const b = $("#addRemoteBtn"); if (b) b.onclick = openRemoteStorageDialog; }
+  { const b = $("#addSourceBtn"); if (b) b.onclick = openAddSourceDialog; }
   $("#rootInput").addEventListener("keydown", e => { if (e.key === "Enter") addRoot(); });
 
   // Shift+click is our multi-select gesture — stop the browser from turning it into

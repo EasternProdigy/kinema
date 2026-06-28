@@ -271,7 +271,7 @@ LOGIN_MAX_FAILS = 5
 
 # Routes reachable WITHOUT authentication (so the login screen + PWA shell can load).
 PUBLIC_ROUTES = {
-    "/", "/index.html", "/qr.js", "/style.css", "/favicon.svg",
+    "/", "/index.html", "/qr.js", "/style.css", "/favicon.svg", "/tmdb-logo.svg",
     "/manifest.webmanifest", "/sw.js",
     "/api/session", "/api/login", "/api/register",
 }

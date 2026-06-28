@@ -18,6 +18,7 @@ PORT = 8000               # port we serve on (used to build the share URLs)
 BIND_HOST = "0.0.0.0"     # socket bind address
 LAN_TOGGLEABLE = False    # True when the bind address can reach the LAN (wildcard bind)
 SERVER_URLS = []          # URLs shown in Settings, reflecting the sharing state
+DLNA = False              # opt-in UPnP/DLNA MediaServer (--dlna): play on the TV, LAN-local
 
 # Phase 5 — CDN edge-caching of the static app shell (hosted edition). When on, /js, /fonts and
 # /style.css are sent with immutable long-cache headers and the shell's asset refs are versioned

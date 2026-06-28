@@ -128,12 +128,14 @@ checklist). Detail + verification steps live in [LAUNCH_CHECKLIST.md §1](LAUNCH
   - **Remote storage, Tier 1 (shipped)** — mount Dropbox/Drive/MEGA/S3/NAS/own-server as a folder
     (provider app or rclone), add it as a library root. Guided in *Settings → Add cloud / remote
     storage*; see **[REMOTE_STORAGE.md](REMOTE_STORAGE.md)**.
-  - **Remote storage, Tier 2 (native, planned)** — add an HTTP-shaped remote source *inside*
-    Kadmu, no mounting: own server (HTTP-range/WebDAV), S3-compatible (R2/B2/Wasabi/MinIO), then
-    Google Drive / Dropbox (REST + OAuth). All doable with `urllib` + `hmac`/`hashlib` — **no new
-    deps**: list the source, range-proxy playback through the node, feed ffmpeg the signed URL, with
-    a small local cache for thumbnails/seeking. **MEGA stays Tier-1-only** — it's E2E-encrypted and
-    the stdlib has no AES, so an app-less reader can't be pure-stdlib.
+  - **Remote storage, Tier 2 (native, no mount)** — add an HTTP-shaped remote source *inside*
+    Kadmu (own server: HTTP-autoindex/WebDAV), `urllib` only, no new deps: the node lists it and
+    range-proxies playback (anti-SSRF: no cross-host redirects), in its own browse-and-play lane
+    that never touches the local path-safety boundary. **Shipped** for HTTP/WebDAV (native
+    containers). **Next:** S3-compatible (R2/B2/Wasabi/MinIO, SigV4 over `hmac`), Google
+    Drive/Dropbox (OAuth), remote remux (ffmpeg over the proxied URL) for non-native files, and
+    folding remote titles into the Shows/Movies catalog. **MEGA stays Tier-1-only** — E2E-encrypted
+    and the stdlib has no AES, so an app-less reader can't be pure-stdlib.
 
 ### Scale & cost-control (when load demands it — not before)
 
