@@ -333,6 +333,24 @@
   </div>
 
   <!-- ===== Settings modal ===== -->
+  <!-- ===== Recommendation transparency + tuning panel ===== -->
+  <div id="recoPanel" class="modal settings-modal hidden">
+    <div class="modal-card settings-card">
+      <div class="settings-accent" aria-hidden="true"></div>
+      <header class="settings-head">
+        <div class="settings-head-title">
+          <span class="settings-tile" data-icon="tune" aria-hidden="true"></span>
+          <div>
+            <h3>Your recommendations</h3>
+            <p class="settings-sub">How they're built — and tune them your way</p>
+          </div>
+        </div>
+        <button class="settings-x" id="recoClose" data-icon="close" title="Close (Esc)" aria-label="Close"></button>
+      </header>
+      <div class="modal-body settings-body" id="recoBody"></div>
+    </div>
+  </div>
+
   <div id="settingsModal" class="modal settings-modal hidden">
     <div class="modal-card settings-card">
       <div class="settings-accent" aria-hidden="true"></div>

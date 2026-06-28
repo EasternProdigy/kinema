@@ -1692,3 +1692,26 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
   .tune-sheet, .party-panel { width: 100vw; }
   .skip-intro { right: 14px; bottom: 92px; }
 }
+
+/* ===== Recommendations: "For you" rows + transparency/tuning panel ===== */
+.reco-head { display: flex; justify-content: flex-end; margin: 0 0 .4rem; }
+.reco-tune { font-size: 13px; }
+.reco-row { margin-bottom: 1.4rem; }
+.reco-explain { color: var(--muted); margin: 0 0 .9rem; line-height: 1.5; }
+.reco-stats { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+.reco-stats .chip { background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: .2rem .6rem; font-size: 12.5px; }
+.reco-h { font-size: 14px; margin: 1.3rem 0 .6rem; }
+.reco-dials { display: grid; gap: 1rem; }
+.reco-dial-head { display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; font-weight: 600; }
+.reco-dial-head output { color: var(--accent); font-variant-numeric: tabular-nums; }
+.reco-dial input[type=range] { width: 100%; accent-color: var(--accent); margin: .35rem 0 .2rem; }
+.reco-dial-help { line-height: 1.4; }
+.reco-actions { display: flex; align-items: center; gap: .6rem; margin: 1.2rem 0 .4rem; }
+.reco-explainList { display: grid; gap: .9rem; }
+.reco-exp-title { font-weight: 600; font-size: 13px; margin-bottom: .3rem; }
+.reco-exp-items { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem; }
+.reco-exp-items li { display: flex; justify-content: space-between; gap: 1rem;
+  font-size: 13px; border-bottom: 1px solid var(--line); padding-bottom: .25rem; }
+.reco-exp-why { white-space: nowrap; }

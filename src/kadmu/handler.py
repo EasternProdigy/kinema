@@ -33,7 +33,7 @@ from .store import (
     set_config, set_progress, set_rating,
 )
 from .catalog import build_catalog, title_detail
-from .recommend import recommend_for_viewer
+from .recommend import recommend_for_viewer, reco_config, set_reco_weights
 from .security import (
     host_allowed, is_loopback, login_check, login_fail, login_ok, new_session,
     parse_cookies, password_required, session_valid, set_lan_mode, set_password,
@@ -837,6 +837,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/recommendations":
             return self._send_json(recommend_for_viewer())
 
+        if route == "/api/reco/config":
+            return self._send_json(reco_config())
+
         if route == "/api/title":
             raw = qs.get("id", [None])[0] or qs.get("path", [None])[0]
             if not raw:
@@ -1106,6 +1109,13 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return self._send_json({"error": "bad value"}, 400)
             return self._send_json({"ok": True, "value": set_rating(str(p), val)})
+
+        if route == "/api/reco/config":
+            # personal recommendation dials — per-viewer prefs, allowed read-only.
+            # {"reset": true} (or no weights) returns to automatic/defaults.
+            weights = None if body.get("reset") else body.get("weights")
+            set_reco_weights(weights)
+            return self._send_json(reco_config())
 
         # ---- watch party: synced playback state (not a library write) ---- #
         if route == "/api/party/create":

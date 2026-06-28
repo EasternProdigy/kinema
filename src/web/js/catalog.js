@@ -35,17 +35,126 @@ async function renderRecommendations() {
   const rows = (data && data.rows) || [];
   if (!rows.length) { sec.classList.add("hidden"); sec.innerHTML = ""; return; }
   sec.innerHTML = "";
+
+  // A "how it works / tune it" entry point above the rows — the transparency panel.
+  const head = el("div", "reco-head");
+  const tune = el("button", "btn ghost reco-tune");
+  tune.innerHTML = `${ICON.tune}<span>How recommendations work</span>`;
+  tune.onclick = openRecoPanel;
+  head.appendChild(tune);
+  sec.appendChild(head);
+
   for (const row of rows) {
     const wrap = el("section", "row-section reco-row");
     const h = el("h2", "row-title");
     h.textContent = row.title;
     wrap.appendChild(h);
     const grid = el("div", "grid title-grid");
-    for (const it of row.items) grid.appendChild(titleCard(it));
+    for (const it of row.items) {
+      const card = titleCard(it);
+      if (it.why) card.title = `${it.name} — ${it.why}`;   // hover hint on why it's here
+      grid.appendChild(card);
+    }
     wrap.appendChild(grid);
     sec.appendChild(wrap);
   }
   sec.classList.remove("hidden");
+}
+
+/* ===================== recommendation transparency + tuning panel ===================== */
+// Shows how the recommender works (from your own ratings + watch history), what you're
+// being recommended and why, lets you reweight the dials, or return to automatic.
+async function openRecoPanel() {
+  const panel = $("#recoPanel");
+  if (!panel) return;
+  panel.classList.remove("hidden");
+  const body = $("#recoBody");
+  body.innerHTML = `<p class="muted">Loading…</p>`;
+  let cfg = null, recs = null;
+  try { [cfg, recs] = await Promise.all([api("/api/reco/config"), api("/api/recommendations")]); }
+  catch (e) { body.innerHTML = `<p class="muted">Couldn't load: ${escapeHtml(e.message)}</p>`; return; }
+  renderRecoPanel(cfg, recs);
+}
+
+function closeRecoPanel() { $("#recoPanel")?.classList.add("hidden"); }
+
+function renderRecoPanel(cfg, recs) {
+  const body = $("#recoBody");
+  if (!body || !cfg) return;
+  const p = cfg.profile || {}, w = cfg.weights || {};
+  const stats = [
+    `${p.ratedUp || 0} liked`, `${p.ratedDown || 0} not for me`, `${p.finished || 0} finished`,
+    (p.topGenres && p.topGenres.length) ? `Top genres: ${p.topGenres.map(escapeHtml).join(", ")}`
+      : (p.hasGenres ? "" : "genres off"),
+  ].filter(Boolean);
+
+  body.innerHTML = `
+    <p class="reco-explain">${escapeHtml(cfg.explain)}</p>
+    <div class="reco-stats">${stats.map(s => `<span class="chip">${s}</span>`).join("")}</div>
+    ${p.hasSignal ? "" : `<p class="muted small">Rate a few titles thumbs-up / thumbs-down (or just watch them) and these get personal. Until then you'll see what's new.</p>`}
+    <h3 class="reco-h">Weight it your way</h3>
+    <div class="reco-dials" id="recoDials"></div>
+    <div class="reco-actions">
+      <button class="btn primary" id="recoSave">Save</button>
+      <button class="btn ghost" id="recoReset">Return to automatic</button>
+      <span id="recoSaved" class="muted small"></span>
+    </div>
+    <h3 class="reco-h">What you're being recommended &amp; why</h3>
+    <div class="reco-explainList" id="recoExplainList"></div>`;
+
+  const dials = $("#recoDials");
+  for (const info of (cfg.info || [])) {
+    const val = Number(w[info.key] ?? 1);
+    const row = el("div", "reco-dial");
+    row.innerHTML =
+      `<div class="reco-dial-head"><label>${escapeHtml(info.label)}</label><output>${val.toFixed(1)}×</output></div>
+       <input type="range" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}" value="${val}" data-key="${info.key}" aria-label="${escapeHtml(info.label)}">
+       <div class="reco-dial-help muted small">${escapeHtml(info.help)}</div>`;
+    const out = $("output", row), input = $("input", row);
+    input.oninput = () => { out.textContent = parseFloat(input.value).toFixed(1) + "×"; };
+    dials.appendChild(row);
+  }
+
+  const list = $("#recoExplainList");
+  const rows = (recs && recs.rows) || [];
+  if (!rows.length) { list.innerHTML = `<p class="muted">No recommendations yet.</p>`; }
+  for (const r of rows) {
+    const g = el("div", "reco-exp-row");
+    g.innerHTML = `<div class="reco-exp-title">${escapeHtml(r.title)}</div>`;
+    const ul = el("ul", "reco-exp-items");
+    for (const it of r.items.slice(0, 6)) {
+      const li = el("li");
+      li.innerHTML = `<span class="reco-exp-name">${escapeHtml(it.name)}</span><span class="reco-exp-why muted">${escapeHtml(it.why || "")}</span>`;
+      ul.appendChild(li);
+    }
+    g.appendChild(ul);
+    list.appendChild(g);
+  }
+
+  $("#recoSave").onclick = async () => {
+    const weights = {};
+    $$("#recoDials input").forEach(i => { weights[i.dataset.key] = parseFloat(i.value); });
+    try {
+      await api("/api/reco/config", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weights }),
+      });
+      $("#recoSaved").textContent = "Saved";
+      renderRecommendations();              // refresh the rows with the new weighting
+    } catch (e) { toast(e.message, "err"); }
+  };
+  $("#recoReset").onclick = async () => {
+    try {
+      const cfg2 = await api("/api/reco/config", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reset: true }),
+      });
+      renderRecoPanel(cfg2, recs);
+      $("#recoSaved").textContent = "Back to automatic";
+      renderRecommendations();
+    } catch (e) { toast(e.message, "err"); }
+  };
+  applyIcons(body);
 }
 
 function renderTitleGrid(sec, grid, items) {
@@ -372,3 +481,14 @@ function renderHomeBar(browseFiles) {
   bar.appendChild(btn);
   applyIcons(bar);
 }
+
+// Close affordances for the recommendations panel (mirrors the settings modal).
+(function wireRecoPanel() {
+  const panel = $("#recoPanel");
+  if (!panel) return;
+  $("#recoClose")?.addEventListener("click", closeRecoPanel);
+  panel.addEventListener("click", (e) => { if (e.target === panel) closeRecoPanel(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !panel.classList.contains("hidden")) closeRecoPanel();
+  });
+})();

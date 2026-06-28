@@ -11,11 +11,15 @@ from . import rt
 from .accounts import (
     _current_uid, db_progress_all, db_set_progress, db_clear_progress,
     db_mylist_all, db_mylist_set, db_ratings_all, db_set_rating, db_migrate_path,
+    db_prefs_get, db_prefs_set,
 )
 from .const import (
-    CONFIG_PATH, PROGRESS_PATH, MYLIST_PATH, RATINGS_PATH, PROFILES_PATH, DATA_DIR,
-    NATIVE_EXTS, _io_lock, _REQ, load_json, save_json,
+    CONFIG_PATH, PROGRESS_PATH, MYLIST_PATH, RATINGS_PATH, RECO_PREFS_PATH, PROFILES_PATH,
+    DATA_DIR, NATIVE_EXTS, _io_lock, _REQ, load_json, save_json,
 )
+
+# Key under the per-user prefs blob (accounts mode) where reco dials live.
+_RECO_PREFS_KEY = "recoWeights"
 
 # --------------------------------------------------------------------------- #
 # Viewer profiles (opt-in: separate progress + My List per person, --profiles)
@@ -340,6 +344,54 @@ def set_rating(key: str, value):
             data[key] = {"rating": value, "updated": time.time()}
         save_json(rp, data)
     return value
+
+
+# --------------------------------------------------------------------------- #
+# Recommendation weight dials (per-viewer; an empty dict means "automatic"/defaults).
+# Stored in the per-user prefs blob in accounts mode, else a profile JSON file —
+# same per-viewer split as ratings/My List. The dial keys + clamping live in
+# recommend.py; this layer just persists whatever clean dict it's handed.
+# --------------------------------------------------------------------------- #
+def reco_prefs_path_for(pid):
+    if not rt.PROFILES_ENABLED or pid == "default":
+        return RECO_PREFS_PATH
+    return DATA_DIR / "profiles" / _profile_slug(pid) / "reco_prefs.json"
+
+
+def _reco_prefs_path():
+    return reco_prefs_path_for(current_profile())
+
+
+def load_reco_weights():
+    """The active viewer's saved recommendation dials, or {} when on automatic."""
+    if rt.ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if not uid:
+            return {}
+        data = db_prefs_get(uid) or {}
+        w = data.get(_RECO_PREFS_KEY)
+        return w if isinstance(w, dict) else {}
+    data = load_json(_reco_prefs_path(), {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_reco_weights(weights: dict):
+    """Persist the viewer's dials (a pre-cleaned dict). An empty dict clears the
+    override, returning them to automatic."""
+    weights = weights or {}
+    if rt.ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if uid:
+            data = db_prefs_get(uid) or {}
+            if weights:
+                data[_RECO_PREFS_KEY] = weights
+            else:
+                data.pop(_RECO_PREFS_KEY, None)
+            db_prefs_set(uid, data)
+        return weights
+    with _io_lock:
+        save_json(_reco_prefs_path(), weights)
+    return weights
 
 
 # --------------------------------------------------------------------------- #

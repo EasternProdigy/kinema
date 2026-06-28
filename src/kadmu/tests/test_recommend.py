@@ -104,5 +104,41 @@ class Rows(unittest.TestCase):
         self.assertEqual(ids(because)[0], "im2")
 
 
+class Weights(unittest.TestCase):
+    def test_clean_weights_bounds_and_filtering(self):
+        c = recommend.clean_weights({"genre": 5, "fresh": -2, "similar": "x",
+                                     "bogus": 1, "surprise": 1.5})
+        self.assertEqual(c.get("genre"), 3.0)     # clamped to max
+        self.assertEqual(c.get("fresh"), 0.0)     # clamped to min
+        self.assertNotIn("similar", c)            # unparseable dropped
+        self.assertNotIn("bogus", c)              # unknown key dropped
+        self.assertEqual(c.get("surprise"), 1.5)
+
+    def test_effective_weights_merges_defaults(self):
+        w = recommend.effective_weights({"genre": 2.0})
+        self.assertEqual(w["genre"], 2.0)
+        self.assertEqual(w["fresh"], 1.0)         # unspecified → default
+
+    def test_dials_change_top_order(self):
+        c = [movie("a", "Alien", rating=1, mtime=1),    # liked scifi, least fresh
+             movie("b", "Blade", mtime=100),            # scifi, freshest
+             movie("c", "Casa", mtime=50)]              # romance
+        gen = {"a": ["scifi"], "b": ["scifi"], "c": ["romance"]}
+        gf = lambda cid: gen.get(cid, [])           # noqa: E731
+        default_top = ids(rows_by_key(recommend.recommend_rows(c, gf, 1000))["top"])
+        self.assertEqual(set(default_top[:2]), {"a", "b"})   # taste: scifi leads
+        off = {"genre": 0, "similar": 0, "surprise": 0, "fresh": 3}
+        tuned_top = ids(rows_by_key(recommend.recommend_rows(c, gf, 1000, weights=off))["top"])
+        self.assertEqual(tuned_top[0], "b")          # genre off + fresh up → freshest first
+
+    def test_profile_summary_counts(self):
+        gen = {"alien": ["scifi"], "evil": ["horror"], "dune": ["action"]}
+        s = recommend.profile_summary(cards(), lambda cid: gen.get(cid, []))
+        self.assertEqual(s["ratedUp"], 1)
+        self.assertEqual(s["ratedDown"], 1)
+        self.assertGreaterEqual(s["finished"], 1)
+        self.assertTrue(s["hasGenres"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
