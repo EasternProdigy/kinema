@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from . import rt
+from . import cloud
 from .const import (
     APP_NAME, APP_VERSION, FFMPEG, MIME, MP4_COPY_ACODECS, MP4_COPY_VCODECS,
     NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES, SESSIONS, SESSIONS_LOCK,
@@ -167,6 +168,13 @@ class Handler(BaseHTTPRequestHandler):
             return False
         is_public = (route in PUBLIC_ROUTES or route.startswith("/fonts/")
                      or route.startswith("/js/"))
+        # Cloud-attach (Phase 4a): an instance whose subscription is inactive serves
+        # the app shell + /api/session (so the UI can show the inactive notice and the
+        # owner can still sign in), but nothing else. Self-host is never gated here.
+        if rt.CLOUD_ENABLED and not is_public and not cloud.entitlement_active():
+            self._send_json({"error": "Kadmu Cloud subscription inactive.",
+                             "entitlement": cloud.entitlement_state(), "needSub": True}, 402)
+            return False
         if not is_public and not self._authed():
             self._send_json({"error": "Authentication required", "needAuth": True}, 401)
             return False
@@ -411,6 +419,9 @@ class Handler(BaseHTTPRequestHandler):
             st["role"] = (u or {}).get("role")
             st["signupOpen"] = signup_open()
             st["needsSetup"] = user_count() == 0
+        st["cloud"] = rt.CLOUD_ENABLED
+        if rt.CLOUD_ENABLED:
+            st["entitlement"] = cloud.entitlement_state()
         return st
 
     # -- per-request viewer profile (opt-in) -------------------------------- #

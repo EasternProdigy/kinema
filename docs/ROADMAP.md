@@ -197,7 +197,7 @@ player and a beautiful frontend first** (the moat), then the Netflix-style disco
   `src/server.py:2036`), `/healthz`, basic metrics, error capture.
 - **Quotas/accounting:** per-user concurrent streams + bandwidth meter (prereq for paid tiers).
 
-### Phase 4a — Cloud v1: accounts, billing, licensing (LAN) *(edition: Hosted)*
+### Phase 4a — Cloud v1: accounts, billing, licensing (LAN) *(edition: Hosted)* — 🚧 SCAFFOLDED
 The node still runs on the user's machine and serves local files (LAN). The cloud adds the
 paid wrapper — egress ≈ $0 (license checks + app shell only).
 - Marketing/landing + **signup with pay-first gate** (Stripe Checkout → entitlement → access).
@@ -205,6 +205,17 @@ paid wrapper — egress ≈ $0 (license checks + app shell only).
 - **Entitlement/license check:** the local node validates an active subscription against the
   cloud (offline grace period so playback survives brief outages).
 - **Donations** wired for the OSS side (separate, simple).
+> **Landed (stdlib-only, runs end-to-end in MOCK mode with no Stripe keys):** the
+> `cloud/control-plane/` service — landing/pricing/donate pages, pay-first signup, Stripe
+> Checkout + customer portal + **signature-verified webhooks** (subscription-state sync),
+> the machine-to-machine **`/api/license`** endpoint issuing short-lived **HS256** license
+> tokens, a subscriber **dashboard** (status + node connection details), and donations.
+> Node side: **`src/kadmu/cloud.py`** cloud-attach client (`--cloud`/`--tenant` +
+> `KADMU_CLOUD_SECRET`) that fetches + verifies a license, caches it for **offline grace**
+> across restarts, and gates the instance (HTTP 402, app shell still loads) when the
+> subscription is inactive. Self-host stays fully unlocked (the gate is a no-op). See
+> [cloud/README.md](../cloud/README.md). **Still open:** a live Stripe key test, the
+> trial-vs-none decision, multi-node-per-account UX, and (future) asymmetric license keys.
 - ⚠️ Honest caveat: LAN-only paid value is thin vs. free self-host. Bundle real convenience
   (managed updates, hosted metadata service so users need no TMDB key, priority support, polish)
   and position remote access (4b) as the reason to subscribe.

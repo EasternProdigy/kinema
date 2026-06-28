@@ -28,6 +28,14 @@ async function api(path, opts = {}) {
     try { e = await r.json(); } catch {}
     if (e.needAuth) { showLogin(); throw new Error("Authentication required"); }
   }
+  if (r.status === 402) {
+    let e = {};
+    try { e = await r.json(); } catch {}
+    if (e.needSub) {
+      if (typeof showCloudInactive === "function") showCloudInactive(e.entitlement);
+      throw new Error("Subscription inactive");
+    }
+  }
   if (!r.ok) {
     let e = {};
     try { e = await r.json(); } catch {}

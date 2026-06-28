@@ -9,7 +9,7 @@ const state = {
   data: null,
   roots: [],              // [{name, path}] configured library roots — lets URLs read as folder names
   progress: {},
-  session: { authRequired: false, authed: true, readonly: false, canManage: true, canBrowse: true, ffmpeg: false, lan: false, canToggleLan: false, urls: [], accounts: false, user: null, role: null },
+  session: { authRequired: false, authed: true, readonly: false, canManage: true, canBrowse: true, ffmpeg: false, lan: false, canToggleLan: false, urls: [], accounts: false, user: null, role: null, cloud: false, entitlement: null },
   organize: false,
   sort: "name",           // name | recent | date | size | duration  (library ordering)
   filter: "all",          // all | unwatched | watched | playable

@@ -18,3 +18,10 @@ PORT = 8000               # port we serve on (used to build the share URLs)
 BIND_HOST = "0.0.0.0"     # socket bind address
 LAN_TOGGLEABLE = False    # True when the bind address can reach the LAN (wildcard bind)
 SERVER_URLS = []          # URLs shown in Settings, reflecting the sharing state
+
+# Cloud-attach (Phase 4a): run this node as a Kadmu Cloud tenant. All off => plain
+# self-host, fully unlocked, entitlement gate is a no-op. See cloud.py.
+CLOUD_ENABLED = False      # True when URL + tenant + secret are all configured
+CLOUD_URL = ""             # control-plane base URL (e.g. https://cloud.kadmu.app)
+CLOUD_TENANT = ""          # this node's tenant id (provisioned in the dashboard)
+CLOUD_SECRET = ""          # the tenant secret (proves possession; never sent on the wire)
