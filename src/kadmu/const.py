@@ -124,6 +124,40 @@ try:
 except ValueError:
     REQUEST_TIMEOUT = 120
 
+# --------------------------------------------------------------------------- #
+# Archive — re-encode a finished show/movie to a more efficient codec to reclaim
+# disk, kept fully watchable. "Visually lossless": a high-quality setting at full
+# resolution (truly lossless would make already-compressed video *bigger*, so this
+# is the honest best — imperceptible loss, real savings). One bounded background
+# worker, one encode at a time. All overridable by env.
+ARCHIVE_PATH = DATA_DIR / "archive.json"      # per-path archive results + space saved
+# Preferred output codec: av1 (most efficient, plays natively) | hevc (faster, but
+# re-watch transcodes) | h264 (broadest compat). Falls back to whatever encoder the
+# local ffmpeg actually has.
+ARCHIVE_CODEC = (os.environ.get("KADMU_ARCHIVE_CODEC") or "av1").strip().lower()
+# Quality (CRF). 0/blank = a sensible per-codec default (lower = higher quality/bigger).
+try:
+    ARCHIVE_CRF = max(0, int(os.environ.get("KADMU_ARCHIVE_CRF", "0")))
+except ValueError:
+    ARCHIVE_CRF = 0
+ARCHIVE_PRESET = (os.environ.get("KADMU_ARCHIVE_PRESET") or "").strip()   # encoder-specific; blank = default
+# What happens to the original after a *verified, smaller* re-encode:
+#   trash  — moved to .kadmu-trash, recoverable (default; empty trash to reclaim now)
+#   delete — removed immediately (frees space at once, no safety net)
+#   keep   — left in place; the smaller copy is saved alongside as "<name> (archived).mp4"
+ARCHIVE_KEEP_ORIGINAL = (os.environ.get("KADMU_ARCHIVE_KEEP_ORIGINAL") or "trash").strip().lower()
+# Require the re-encode to be at least this much smaller, else keep the original
+# (re-encoding gained nothing — e.g. the source was already efficient).
+try:
+    ARCHIVE_MIN_SAVING = min(0.9, max(0.0, float(os.environ.get("KADMU_ARCHIVE_MIN_SAVING", "0.08"))))
+except ValueError:
+    ARCHIVE_MIN_SAVING = 0.08
+# Source video codecs already efficient enough that re-encoding would only lose
+# quality for little/no gain — skipped (and surfaced as "already efficient").
+ARCHIVE_SKIP_VCODECS = {"av1", "hevc", "h265", "vp9"}
+# Don't bother with tiny files (bytes); the overhead isn't worth it.
+ARCHIVE_MIN_BYTES = 32 * 1024 * 1024
+
 CONFIG_PATH = DATA_DIR / "config.json"
 PROGRESS_PATH = DATA_DIR / "progress.json"
 PLAYLISTS_PATH = DATA_DIR / "playlists.json"

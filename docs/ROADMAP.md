@@ -116,6 +116,24 @@ checklist). Detail + verification steps live in [LAUNCH_CHECKLIST.md §1](LAUNCH
   hosted edition could run this as a managed service so users need no TMDB key.
 - **Cast / DLNA out** ("play on TV"), deinterlace, smart `S01E02` show/season grouping,
   because-you-watched rows — depth on the player & discovery moat.
+- **Reclaim disk: Archive (shrink) + BYO-storage (offload)** — the "stop letting media eat my
+  disk" pair. Both keep model A (the node does the work; our servers never touch the bytes).
+  - **Archive a finished title** — a single, bounded, cancelable background ffmpeg worker
+    re-encodes a watched show/movie to a more efficient codec (default **visually-lossless AV1**,
+    full resolution; HEVC alt), verifies the result, moves the original to `.kadmu-trash`
+    (recoverable), and swaps the smaller file in under the same name (so resume/grouping survive).
+    Manual button + an auto-*suggest* badge on fully-watched titles (never auto-deletes). Records
+    space saved. ⚠ Truly *lossless* + smaller is impossible for already-compressed video — the
+    feature is honest "visually lossless," and skips files already in an efficient codec.
+  - **Remote storage, Tier 1 (shipped)** — mount Dropbox/Drive/MEGA/S3/NAS/own-server as a folder
+    (provider app or rclone), add it as a library root. Guided in *Settings → Add cloud / remote
+    storage*; see **[REMOTE_STORAGE.md](REMOTE_STORAGE.md)**.
+  - **Remote storage, Tier 2 (native, planned)** — add an HTTP-shaped remote source *inside*
+    Kadmu, no mounting: own server (HTTP-range/WebDAV), S3-compatible (R2/B2/Wasabi/MinIO), then
+    Google Drive / Dropbox (REST + OAuth). All doable with `urllib` + `hmac`/`hashlib` — **no new
+    deps**: list the source, range-proxy playback through the node, feed ffmpeg the signed URL, with
+    a small local cache for thumbnails/seeking. **MEGA stays Tier-1-only** — it's E2E-encrypted and
+    the stdlib has no AES, so an app-less reader can't be pure-stdlib.
 
 ### Scale & cost-control (when load demands it — not before)
 

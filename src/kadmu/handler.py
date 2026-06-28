@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import cloud, ops, rt
+from . import archive, cloud, ops, rt
 from .const import (
     APP_NAME, APP_VERSION, FFMPEG, MIME, MP4_COPY_ACODECS, MP4_COPY_VCODECS,
     NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES, REQUEST_TIMEOUT, SESSIONS,
@@ -34,6 +34,7 @@ from .store import (
 )
 from .catalog import build_catalog, title_detail
 from .recommend import recommend_for_viewer, reco_config, set_reco_weights
+from . import tmdb, enrich
 from .security import (
     host_allowed, is_loopback, login_check, login_fail, login_ok, new_session,
     parse_cookies, password_required, session_valid, set_lan_mode, set_password,
@@ -510,6 +511,7 @@ class Handler(BaseHTTPRequestHandler):
             "canSetPassword": (not rt.ACCOUNTS_ENABLED) and (not rt.READONLY) and authed,
             "profiles": rt.PROFILES_ENABLED and not rt.ACCOUNTS_ENABLED,
             "accounts": rt.ACCOUNTS_ENABLED,
+            "tmdb": tmdb.enabled(),     # metadata layer on → discovery + sharper recs
             "user": None, "role": None,
         }
         if rt.ACCOUNTS_ENABLED:
@@ -834,11 +836,27 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/catalog":
             return self._send_json(build_catalog())
 
+        if route == "/api/archive":
+            return self._send_json(archive.status())
+
         if route == "/api/recommendations":
             return self._send_json(recommend_for_viewer())
 
         if route == "/api/reco/config":
             return self._send_json(reco_config())
+
+        if route == "/api/tmdb/status":
+            return self._send_json(enrich.enrich_status())
+
+        if route == "/api/tmdb/img":
+            # Server-side poster proxy: keeps the browser same-origin (strict CSP) and
+            # caches TMDB images on disk. path/size are validated inside fetch_image.
+            got = tmdb.fetch_image(unquote(qs.get("path", [""])[0]),
+                                   qs.get("size", ["w342"])[0])
+            if not got:
+                return self._send_json({"error": "not found"}, 404)
+            data, ctype = got
+            return self._send_bytes(data, ctype, cache=IMMUTABLE_CACHE)
 
         if route == "/api/title":
             raw = qs.get("id", [None])[0] or qs.get("path", [None])[0]
@@ -847,6 +865,7 @@ class Handler(BaseHTTPRequestHandler):
             detail = title_detail(unquote(raw))
             if detail is None:
                 return self._send_json({"error": "not found"}, 404)
+            detail["archive"] = archive.title_archive_state(detail["id"])
             return self._send_json(detail)
 
         if route == "/api/party/state":
@@ -1204,6 +1223,45 @@ class Handler(BaseHTTPRequestHandler):
                 request_reindex()       # roots changed -> rebuild the search catalog
             return self._send_json(get_config())
 
+        if route == "/api/tmdb/key":
+            # Owner sets the TMDB API key (persisted in config.json; env still wins).
+            if not self._require_writable() or not self._require_admin():
+                return
+            key = str(body.get("key", "")).strip()
+            cfg = get_config()
+            if key:
+                cfg["tmdbKey"] = key
+            else:
+                cfg.pop("tmdbKey", None)
+            set_config(cfg)
+            tmdb.set_key(key)
+            if tmdb.enabled():
+                enrich.request_enrich()     # got a key → start matching the library now
+            return self._send_json({"ok": True, "enabled": tmdb.enabled(),
+                                    "status": enrich.enrich_status()})
+
+        if route == "/api/tmdb/enrich":
+            # Kick (or force a full re-match of) the TMDB enrichment worker.
+            if not self._require_writable() or not self._require_admin():
+                return
+            if not tmdb.enabled():
+                return self._send_json({"ok": False, "error": "Add a TMDB API key first."}, 400)
+            enrich.request_enrich(force=bool(body.get("force")))
+            return self._send_json({"ok": True, "status": enrich.enrich_status()})
+
+        if route == "/api/tmdb/match":
+            # Owner override: pin one library title to a specific TMDB id.
+            if not self._require_writable() or not self._require_admin():
+                return
+            cid = resolve_within_roots(body.get("id") or body.get("path"), must_exist=True)
+            if not cid:
+                return self._send_json({"ok": False, "error": "outside library"}, 400)
+            res = enrich.set_manual_match(str(cid), str(body.get("kind", "")),
+                                          body.get("tmdbId"))
+            if not res:
+                return self._send_json({"ok": False, "error": "Couldn't match that title."}, 400)
+            return self._send_json({"ok": True, "match": res})
+
         if route == "/api/playlists":
             # personal playlists — per-user in accounts mode, shared otherwise.
             if not self._require_writable():
@@ -1276,6 +1334,21 @@ class Handler(BaseHTTPRequestHandler):
             if ok and action in ("rename", "move", "mkdir", "delete"):
                 request_reindex()       # library layout changed -> refresh the catalog
             return self._send_json({"ok": ok, "message": msg}, 200 if ok else 400)
+
+        # Archive a finished title (re-encode to reclaim disk). Library-management, so
+        # writable + admin like /api/op. The actual encoding runs on the background worker.
+        if route == "/api/archive":
+            if not self._require_writable() or not self._require_admin():
+                return
+            tid = body.get("id") or body.get("path")
+            if not tid:
+                return self._send_json({"ok": False, "error": "missing id"}, 400)
+            return self._send_json(archive.enqueue(str(tid)))
+
+        if route == "/api/archive/cancel":
+            if not self._require_writable() or not self._require_admin():
+                return
+            return self._send_json(archive.cancel(body.get("id")))
 
         return self._send_json({"error": "not found"}, 404)
 

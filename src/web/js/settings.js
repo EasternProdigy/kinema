@@ -16,6 +16,7 @@ async function openSettings() {
   const libSec = $("#rootList")?.closest(".settings-section");
   if (libSec) libSec.classList.toggle("hidden", state.session.accounts && !state.session.canManage);
   if (state.session.canManage) await renderRoots();
+  await renderTmdb();       // TMDB metadata + discovery (admins/owner only)
   renderAccount();          // your own account (accounts mode)
   await renderUsers();      // people management (admins, accounts mode)
 }
@@ -106,6 +107,103 @@ async function addRoot() {
     await renderRoots();
     loadLibrary(null);
   } catch (e) { $("#settingsStatus").textContent = e.message; }
+}
+
+/* ----- settings: TMDB metadata + discovery ----- */
+// The optional metadata layer: paste a TMDB key, match the library, watch progress.
+// Owner/admin only (it sets an instance-wide key and makes outbound calls).
+async function renderTmdb() {
+  const sec = $("#tmdbSection");
+  if (!sec) return;
+  const canManage = state.session.canManage;
+  sec.classList.toggle("hidden", !canManage);
+  if (!canManage) return;
+  let st = null;
+  try { st = await api("/api/tmdb/status"); } catch { st = null; }
+  renderTmdbControl(st);
+}
+
+function renderTmdbControl(st) {
+  const box = $("#tmdbControl");
+  if (!box) return;
+  st = st || {};
+  const enabled = !!st.enabled;
+  const pct = (enabled && st.total) ? Math.round((st.matched / st.total) * 100) : 0;
+  const countEl = $("#tmdbCount");
+  if (countEl) countEl.textContent = (enabled && st.ready) ? `${st.matched}/${st.total} matched` : "";
+  const statusLine = enabled
+    ? (st.ready
+        ? `${st.matched} of ${st.total} titles matched${st.building ? " · matching now…" : (st.unmatched ? " · " + st.unmatched + " to go" : " · all set")}`
+        : "Connected — waiting for your library to finish indexing…")
+    : "No key yet — recommendations use your ratings + filenames only.";
+  box.innerHTML = `
+    <div class="tmdb-status">
+      <span class="tmdb-dot ${enabled ? "on" : "off"}"></span>
+      <span class="tmdb-state">${enabled ? "TMDB connected" : "TMDB off"}</span>
+      <span class="muted small">— ${escapeHtml(statusLine)}</span>
+    </div>
+    ${(enabled && st.total) ? `<div class="tmdb-bar"><i style="width:${pct}%"></i></div>` : ""}
+    <div class="tmdb-form">
+      <input type="password" id="tmdbKeyInput" autocomplete="off" spellcheck="false"
+             placeholder="${enabled ? "Replace TMDB API key" : "Paste your TMDB API key (v3 key or v4 token)"}" />
+      <button class="btn primary" id="tmdbKeySave">Save key</button>
+      ${enabled ? `<button class="btn ghost" id="tmdbKeyClear">Remove</button>` : ""}
+    </div>
+    <p class="muted small">Get a free key at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org</a> — it's stored on this server only and never shared.</p>
+    ${enabled ? `<div class="tmdb-actions">
+      <button class="btn" id="tmdbMatch">Match my library</button>
+      <button class="btn ghost" id="tmdbRematch">Re-match everything</button>
+      <span id="tmdbMsg" class="muted small"></span>
+    </div>` : ""}`;
+  $("#tmdbKeySave").onclick = () => saveTmdbKey($("#tmdbKeyInput").value);
+  $("#tmdbKeyInput").addEventListener("keydown", e => { if (e.key === "Enter") saveTmdbKey(e.target.value); });
+  const clr = $("#tmdbKeyClear"); if (clr) clr.onclick = () => saveTmdbKey("");
+  const m = $("#tmdbMatch"); if (m) m.onclick = () => triggerEnrich(false);
+  const rm = $("#tmdbRematch"); if (rm) rm.onclick = () => triggerEnrich(true);
+}
+
+async function saveTmdbKey(key) {
+  key = (key || "").trim();
+  try {
+    const r = await api("/api/tmdb/key", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    if (r && r.ok === false) { toast(r.error || "Couldn't save key.", "err"); return; }
+    toast(key ? "TMDB key saved — matching your library…" : "TMDB key removed", "ok");
+    await refreshSession();
+    renderTmdbControl(r.status);
+    if (key) pollTmdb();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function triggerEnrich(force) {
+  const msg = $("#tmdbMsg"); if (msg) msg.textContent = force ? "Re-matching everything…" : "Matching…";
+  try {
+    await api("/api/tmdb/enrich", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: !!force }),
+    });
+    pollTmdb();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+let _tmdbPoll = null;
+// Refresh the matched-count + progress bar while the worker is busy (stops when it's
+// idle, the modal closes, or after a sane number of ticks).
+function pollTmdb() {
+  if (_tmdbPoll) { clearTimeout(_tmdbPoll); _tmdbPoll = null; }
+  let tries = 0;
+  const tick = async () => {
+    let st = null;
+    try { st = await api("/api/tmdb/status"); } catch { /* ignore */ }
+    if (st) renderTmdbControl(st);
+    tries++;
+    const open = !$("#settingsModal").classList.contains("hidden");
+    const working = st && (st.building || (st.ready && st.matched < st.total));
+    if (open && working && tries < 90) _tmdbPoll = setTimeout(tick, 2000);
+  };
+  tick();
 }
 
 /* ----- settings: server status tiles ----- */

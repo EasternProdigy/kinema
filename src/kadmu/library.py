@@ -600,6 +600,14 @@ def _search_live(q, terms, raw, limit):
 _index_lock = threading.Lock()
 _index_data: dict | None = None
 _index_event = threading.Event()
+# Callbacks fired (best-effort) after each successful index rebuild, so dependent
+# layers can react to a fresh catalog without importing back into library (avoids a
+# cycle). The TMDB enricher registers here to match newly-added titles.
+_post_index_hooks: list = []
+
+
+def add_post_index_hook(fn):
+    _post_index_hooks.append(fn)
 
 
 def _index_snapshot():
@@ -656,6 +664,11 @@ def _indexer_loop():
             built = _build_index()
             with _index_lock:
                 _index_data = built
+            for hook in _post_index_hooks:        # fresh catalog → notify dependents
+                try:
+                    hook()
+                except Exception:
+                    pass
         except Exception:
             pass
         # sleep until the refresh interval elapses OR a rebuild is requested

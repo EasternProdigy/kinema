@@ -349,3 +349,111 @@ async function openFolderPicker() {
   draw(null);
 }
 
+/* ===================== add cloud / remote storage (Tier 1: mount, then point) =====================
+   Kadmu watches local folders, so any remote store works the moment it's surfaced as a
+   folder on the machine running Kadmu — via the provider's desktop app or rclone. This
+   dialog just guides that, then adds the mounted path as a normal library root. Full
+   per-provider walkthroughs live in docs/REMOTE_STORAGE.md. The step HTML below is all
+   static, author-controlled text (no user input), so it's injected as-is. */
+const REMOTE_PROVIDERS = [
+  { id: "drive", name: "Google Drive",
+    steps: [
+      "Install <b>Google Drive for desktop</b> on the computer running Kadmu and sign in.",
+      "It appears as a drive/folder — e.g. <code>G:\\My Drive</code> (Windows) or <code>~/Library/CloudStorage/GoogleDrive-…</code> (macOS).",
+      "Paste that folder (or a movies subfolder) below.",
+    ],
+    hint: "Tip: mark the media you want as “Available offline” so seeking stays smooth." },
+  { id: "dropbox", name: "Dropbox",
+    steps: [
+      "Install the <b>Dropbox desktop app</b> on the Kadmu machine and sign in.",
+      "It creates a <code>Dropbox</code> folder (e.g. <code>~/Dropbox</code> or <code>C:\\Users\\you\\Dropbox</code>).",
+      "Paste that folder (or a subfolder) below.",
+    ],
+    hint: "Tip: use “Make available offline” on your media folder for smooth seeking." },
+  { id: "mega", name: "MEGA",
+    steps: [
+      "Install <b>MEGAsync</b> and sync a folder, <i>or</i> run <code>rclone mount mega: ~/kadmu-media</code>.",
+      "Paste the local synced/mounted folder below.",
+    ],
+    hint: "MEGA is end-to-end encrypted, so there’s no app-less native link — the mount/sync does the decrypting." },
+  { id: "s3", name: "S3 / Backblaze / Wasabi",
+    steps: [
+      "Install <b>rclone</b> and configure your bucket: <code>rclone config</code>.",
+      "Mount it with a cache: <code>rclone mount remote:bucket ~/kadmu-media --vfs-cache-mode full</code>.",
+      "Paste the mount folder (<code>~/kadmu-media</code>) below.",
+    ],
+    hint: "The VFS cache is what makes seeking and transcoding feel local." },
+  { id: "server", name: "Your own server",
+    steps: [
+      "Share it over <b>SMB/NFS</b>, <b>SFTP</b>, or <b>WebDAV</b>.",
+      "Mount it: map a network drive (Windows/macOS), <code>mount -t cifs</code> (Linux), <code>sshfs</code>, or <code>rclone mount</code>.",
+      "Paste the mounted folder below.",
+    ],
+    hint: "A LAN NAS share is near-local speed; far-away SFTP/WebDAV benefits from rclone’s cache." },
+  { id: "other", name: "Something else",
+    steps: [
+      "<b>rclone</b> supports 70+ providers (OneDrive, pCloud, Box, Proton Drive, …).",
+      "<code>rclone config</code> → <code>rclone mount remote: ~/kadmu-media --vfs-cache-mode full</code>.",
+      "Paste the mount folder below.",
+    ],
+    hint: "If it can be mounted as a folder, Kadmu can stream it." },
+];
+
+function openRemoteStorageDialog() {
+  if (!state.session.canManage) { toast("Only an admin can add storage.", "err"); return; }
+  let provider = REMOTE_PROVIDERS[0].id;
+  const body =
+    `<p class="muted small remote-intro">Kadmu plays from folders on the machine it runs on. Link any
+       cloud or remote drive by <b>mounting it as a folder</b> there — with the provider’s app or
+       <a href="https://rclone.org" target="_blank" rel="noopener">rclone</a> — then point Kadmu at it.
+       Your video never touches our servers; the node streams it straight to you.</p>
+     <div class="remote-providers" id="remoteProviders"></div>
+     <div class="remote-steps" id="remoteSteps"></div>
+     <label class="remote-label">Mounted folder path <span class="muted">(on the Kadmu machine)</span></label>
+     <input type="text" id="remotePathInput" placeholder="/home/you/kadmu-media   (or  G:\\My Drive\\Shows)" />
+     <p class="muted small">Step-by-step guide for every provider: <code>docs/REMOTE_STORAGE.md</code></p>`;
+  openDialog("Add cloud / remote storage", body, async () => {
+    const p = ($("#remotePathInput").value || "").trim();
+    if (!p) { toast("Paste the mounted folder’s path first.", "err"); return false; }
+    try {
+      const cfg = await api("/api/config");
+      const next = [...new Set([...(cfg.roots || []), p])];
+      const res = await api("/api/config", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roots: next }),
+      });
+      if (!(res.roots || []).includes(p)) {
+        toast(`Couldn’t find “${p}” on the Kadmu machine. Make sure the drive is mounted and the path is exact.`, "err");
+        return false;
+      }
+      await refreshSession();
+      if (typeof renderRoots === "function") await renderRoots();
+      toast("Remote storage added", "ok");
+      loadLibrary(null);
+      return true;
+    } catch (e) { toast(e.message, "err"); return false; }
+  });
+  $("#dialogOk").textContent = "Add to library";
+
+  const provWrap = $("#remoteProviders");
+  function drawSteps() {
+    const pr = REMOTE_PROVIDERS.find(x => x.id === provider) || REMOTE_PROVIDERS[0];
+    $("#remoteSteps").innerHTML =
+      `<ol>${pr.steps.map(s => `<li>${s}</li>`).join("")}</ol>` +
+      `<p class="muted small remote-hint">${pr.hint}</p>`;
+  }
+  REMOTE_PROVIDERS.forEach(pr => {
+    const chip = el("button", "remote-prov" + (pr.id === provider ? " on" : ""), escapeHtml(pr.name));
+    chip.type = "button";
+    chip.onclick = () => {
+      provider = pr.id;
+      $$(".remote-prov", provWrap).forEach(c => c.classList.remove("on"));
+      chip.classList.add("on");
+      drawSteps();
+    };
+    provWrap.appendChild(chip);
+  });
+  drawSteps();
+  setTimeout(() => { const i = $("#remotePathInput"); if (i) i.focus(); }, 50);
+}
+

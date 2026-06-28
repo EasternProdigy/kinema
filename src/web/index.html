@@ -379,6 +379,7 @@
           <div id="rootList" class="root-list"></div>
           <div class="add-root">
             <button class="btn primary" id="browseRootBtn" data-icon-prefix="folderOpen">Add a folder…</button>
+            <button class="btn" id="addRemoteBtn" data-icon-prefix="globe">Add cloud / remote storage…</button>
           </div>
           <details class="advanced-add">
             <summary class="muted small">or type a path manually</summary>
@@ -388,6 +389,19 @@
             </div>
           </details>
           <div id="settingsStatus" class="settings-status muted small"></div>
+        </section>
+
+        <!-- Discovery & recommendations (TMDB metadata) -->
+        <section class="settings-section" id="tmdbSection">
+          <div class="section-head">
+            <span class="section-ic" data-icon="tune" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>Discovery &amp; recommendations</h4>
+              <p class="muted small">Add a free TMDB key to pull real genres, cast and ratings — and get suggestions for great titles you don't own yet.</p>
+            </div>
+            <span class="section-count" id="tmdbCount"></span>
+          </div>
+          <div id="tmdbControl" class="tmdb-control"></div>
         </section>
 
         <!-- Server status -->
@@ -525,6 +539,7 @@
   <script src="/js/library.js"></script>
   <script src="/js/home.js"></script>
   <script src="/js/catalog.js"></script>
+  <script src="/js/archive.js"></script>
   <script src="/js/manage.js"></script>
   <script src="/js/settings.js"></script>
   <script src="/js/accounts.js"></script>

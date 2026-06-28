@@ -167,6 +167,7 @@ function renderTitleGrid(sec, grid, items) {
 
 // A poster tile for one show or movie. Clicking opens its detail page.
 function titleCard(it) {
+  if (it.external) return externalCard(it);   // a TMDB suggestion you don't own yet
   const card = el("div", "title-card");
   card.dataset.id = it.id;
   card.dataset.path = it.id;                 // lets toggleMyList sync this card too
@@ -184,6 +185,7 @@ function titleCard(it) {
        <img alt="" loading="lazy" style="opacity:0;transition:opacity .2s" />
        <span class="kind-badge">${isShow ? "Series" : "Movie"}</span>
        ${ratingFlag(it.rating)}
+       ${it.suggestArchive && typeof archiveSuggestFlag === "function" ? archiveSuggestFlag() : ""}
        ${it.watched ? `<span class="seen-flag" title="Watched">${ICON.check}</span>` : ""}
        <div class="play-ic"><span>${ICON.play}</span></div>
        ${frac > 0 ? `<div class="resume"><i style="width:${frac}%"></i></div>` : ""}
@@ -200,6 +202,57 @@ function titleCard(it) {
   }
   card.onclick = () => openTitle(it.id);
   return card;
+}
+
+// A poster tile for a TMDB suggestion that ISN'T in the library. No playback — it
+// opens an info card with the synopsis and a link to find it (then watch it here).
+function externalCard(it) {
+  const card = el("div", "title-card external");
+  card.dataset.id = it.id;
+  const sub = [it.year ? String(it.year) : "", it.vote ? `★ ${it.vote}` : ""].filter(Boolean).join(" · ");
+  card.innerHTML =
+    `<div class="poster">
+       <div class="ph">${ICON.film}</div>
+       <img alt="" loading="lazy" style="opacity:0;transition:opacity .2s" />
+       <span class="kind-badge discover-badge">${it.kind === "show" ? "Series" : "Movie"} · TMDB</span>
+       <div class="play-ic discover-ic"><span>${ICON.plus}</span></div>
+     </div>
+     <div class="title-foot">
+       <div class="title-name">${escapeHtml(it.name)}</div>
+       <div class="title-sub">${escapeHtml(sub || "Not in your library")}</div>
+     </div>`;
+  const img = $("img", card);
+  if (img && it.poster) {
+    img.onload = () => { if (img.naturalWidth) { img.style.opacity = 1; $(".ph", card)?.remove(); } };
+    img.onerror = () => { img.removeAttribute("src"); };
+    img.src = it.poster;
+  }
+  card.onclick = () => openDiscover(it);
+  return card;
+}
+
+// Info card for an external (TMDB) suggestion: synopsis, why it's here, and a link
+// out to TMDB so the viewer can find it through their own channels and add it.
+function openDiscover(it) {
+  const poster = it.poster
+    ? `<img class="discover-poster" alt="" src="${escapeHtml(it.poster)}" />` : "";
+  const meta = [it.year ? String(it.year) : "", it.vote ? `★ ${it.vote} on TMDB` : "",
+                it.kind === "show" ? "Series" : "Movie"].filter(Boolean).join("  ·  ");
+  openDialog(it.name, `
+    <div class="discover-dlg">
+      ${poster}
+      <div class="discover-meta">
+        <div class="muted small">${escapeHtml(meta)}</div>
+        ${it.why ? `<div class="discover-why">${escapeHtml(it.why)}</div>` : ""}
+        ${it.overview ? `<p class="discover-overview">${escapeHtml(it.overview)}</p>` : ""}
+        <p class="muted small">Not in your library yet. Find it through your usual channels, add the file to a Kadmu folder, and it'll play here.</p>
+      </div>
+    </div>`, () => {
+    if (it.tmdbUrl) window.open(it.tmdbUrl, "_blank", "noopener");
+    return true;
+  });
+  const ok = $("#dialogOk");
+  if (ok) ok.textContent = it.tmdbUrl ? "View on TMDB →" : "OK";
 }
 
 // Small corner flag showing a thumbs rating on a poster (nothing when unrated).
@@ -318,6 +371,9 @@ function renderTitleDetail(d) {
   });
 
   if (isShow) buildSeasons(view, d);
+  // Archive (reclaim disk) control — appended to the actions row when the server has
+  // an encoder. No-op if archive.js didn't load.
+  if (typeof renderArchiveControls === "function") renderArchiveControls(view, d);
 }
 
 function syncMyListLabel(view, id) {

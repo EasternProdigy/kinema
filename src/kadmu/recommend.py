@@ -26,6 +26,10 @@ All of it is transparent and user-tunable (see reco_config / set_reco_weights) a
 recommendation carries a human `why`. With no metadata yet it degrades to the local features
 + ratings/recency and still works; it gets markedly sharper the moment TMDB enrichment lands.
 
+When the TMDB layer is on, `discover_rows` also surfaces titles you DON'T own — pulled from
+the recommendations/similar graph of the ones you do, then re-ranked by the same taste vector
+and dials — so the same engine suggests both what's in your library and what to get next.
+
 stdlib only; sits above catalog/store, below handler.
 """
 from __future__ import annotations
@@ -33,9 +37,9 @@ import math
 import re
 import time
 
-from .const import DATA_DIR, load_json
 from .catalog import build_catalog
 from .store import load_reco_weights, save_reco_weights, load_ratings, load_progress
+from . import enrich
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 _STOP = {"the", "a", "an", "of", "and", "to", "in", "on", "season", "series", "complete",
@@ -98,21 +102,19 @@ def _tokens(name: str) -> set:
 # Feature source — the title → tag-weights map (metadata layer + local features)
 # --------------------------------------------------------------------------- #
 class FeatureSource:
-    """Reads the optional metadata caches (catalog_match.json → tmdb_cache.json) and
-    derives a weighted tag dict per catalog card. Always contributes local features so
-    the engine is useful even with no metadata."""
+    """Reads the optional TMDB caches (catalog_match.json → tmdb_cache.json, via the
+    enrich module) and derives a weighted tag dict per catalog card. Always
+    contributes local features so the engine is useful even with no metadata."""
 
     def __init__(self):
-        m = load_json(DATA_DIR / "catalog_match.json", {})
-        t = load_json(DATA_DIR / "tmdb_cache.json", {})
-        self._match = m if isinstance(m, dict) else {}
-        self._tmdb = t if isinstance(t, dict) else {}
+        self._match = enrich.load_match()
+        self._tmdb = enrich.load_cache()
 
     def _detail(self, cid):
-        tid = self._match.get(cid)
-        if tid is None:
+        key = enrich.match_key(self._match.get(cid))
+        if not key or key == "none":
             return {}
-        d = self._tmdb.get(str(tid)) or self._tmdb.get(tid) or {}
+        d = self._tmdb.get(str(key)) or {}
         return d if isinstance(d, dict) else {}
 
     def tags(self, card) -> dict:
@@ -369,10 +371,10 @@ def _item(card, reason, M, seed_name=None):
 
 
 def recommend_rows(cards, tags_for, now, weights=None, quality_for=None,
-                   top_n=24, max_because=3, mmr_cap=200):
+                   top_n=24, max_because=3, mmr_cap=200, model=None):
     """The ordered recommendation shelves for a viewer's (enriched) catalog cards."""
     w = effective_weights(weights)
-    M = build_model(cards, tags_for, quality_for, now)
+    M = model if model is not None else build_model(cards, tags_for, quality_for, now)
     by_id = {c["id"]: c for c in cards}
     fr = _freshness(cards)
     lam = max(0.0, min(0.85, 0.35 * w["surprise"]))     # variety dial → MMR strength
@@ -441,6 +443,139 @@ def recommend_rows(cards, tags_for, now, weights=None, quality_for=None,
     return rows
 
 
+# --------------------------------------------------------------------------- #
+# Discovery — TMDB titles you DON'T own, suggested from the recommendations/similar
+# graph of the ones you do, re-ranked by your taste vector + the dials. Needs the
+# TMDB metadata layer (enrich); returns [] without it.
+# --------------------------------------------------------------------------- #
+_DISCOVER_MAX = 200
+
+
+def _stub_vec(stub, idf):
+    tags = {}
+    for g in (stub.get("genres") or []):
+        if g:
+            tags["g:" + g.strip().lower()] = _FW["g"]
+    y = stub.get("year")
+    if y:
+        try:
+            tags["dec:%d" % ((int(y) // 10) * 10)] = _FW["dec"]
+        except (TypeError, ValueError):
+            pass
+    k = stub.get("kind")
+    if k:
+        tags["kind:%s" % ("show" if k == "tv" else "movie")] = _FW["kind"]
+    return _vec(tags, idf)
+
+
+def _ext_item(stub, why):
+    kind = stub.get("kind")
+    tid = stub.get("tmdb_id")
+    return {
+        "id": stub.get("key"), "external": True,
+        "tmdb_id": tid, "tmdbKind": kind,
+        "kind": "show" if kind == "tv" else "movie",
+        "name": stub.get("title") or "Untitled",
+        "year": stub.get("year"),
+        "poster": enrich.poster_url(stub.get("poster_path")),
+        "overview": stub.get("overview") or "",
+        "vote": round(float(stub.get("vote_average") or 0), 1),
+        "rating": 0,
+        "tmdbUrl": ("https://www.themoviedb.org/%s/%s" % (kind, tid)) if tid else "",
+        "reason": "discover", "why": why,
+    }
+
+
+def discover_rows(cards, M, weights, now, top_n=24):
+    """External recommendation shelves (titles not in the library). Empty unless the
+    TMDB layer has matched some owned titles and pulled their suggestion graph."""
+    match = enrich.load_match()
+    cache = enrich.load_cache()
+    if not cache:
+        return []
+    owned, card_key = set(), {}
+    for cid, rec in match.items():
+        k = enrich.match_key(rec)
+        if k and k != "none":
+            owned.add(k)
+            card_key[cid] = k
+
+    has_pos = any(_signal(c, now) > 0 for c in cards)
+    cand = {}     # ext_key -> {"stub", "score", "sources": {name: weight}}
+    for c in cards:
+        k = card_key.get(c["id"])
+        if not k:
+            continue
+        sig = _signal(c, now)
+        if sig > 0:
+            weight = sig
+        elif not has_pos:
+            weight = 0.2          # cold start: lean on the shape of the library itself
+        else:
+            continue
+        for rank, stub in enumerate((cache.get(k) or {}).get("recs") or []):
+            sk = stub.get("key")
+            if not sk or sk in owned:
+                continue
+            rw = weight / (1.0 + rank * 0.15)
+            e = cand.get(sk)
+            if e is None:
+                e = cand[sk] = {"stub": stub, "score": 0.0, "sources": {}}
+            e["score"] += rw
+            nm = c.get("name") or ""
+            e["sources"][nm] = max(e["sources"].get(nm, 0.0), rw)
+    if not cand:
+        return []
+
+    idf, w = M["idf"], weights
+    cvec, cnorm = {}, {}
+    for sk, e in cand.items():
+        gv = _stub_vec(e["stub"], idf)
+        cvec[sk], cnorm[sk] = gv, _norm(gv)
+        cos = _cos(M["taste"], M["taste_norm"], gv, cnorm[sk]) if M["taste"] else 0.0
+        vote = float(e["stub"].get("vote_average") or 0) / 10.0
+        e["final"] = 0.6 * e["score"] + w["genre"] * cos + 0.2 * vote
+
+    ranked = sorted(cand, key=lambda s: cand[s]["final"], reverse=True)[:_DISCOVER_MAX]
+    lam = max(0.0, min(0.85, 0.35 * w["surprise"]))
+    pseudo = {"vecs": cvec, "norms": cnorm}
+    picks = _mmr(ranked, _minmax({s: cand[s]["final"] for s in ranked}), pseudo, top_n, lam)
+
+    def top_source(e):
+        return max(e["sources"], key=lambda n: e["sources"][n]) if e["sources"] else ""
+
+    rows = []
+    items = []
+    for sk in picks:
+        e = cand[sk]
+        src = top_source(e)
+        why = ("Because you watched %s" % src) if (src and has_pos) else "Based on your library"
+        items.append(_ext_item(e["stub"], why))
+    if items:
+        rows.append({"key": "discover", "external": True,
+                     "title": "Recommended for you — not in your library yet",
+                     "items": items})
+
+    # A focused "because you watched X" external shelf for the single strongest seed.
+    if has_pos:
+        by_source = {}
+        for sk, e in cand.items():
+            s = top_source(e)
+            if s:
+                by_source.setdefault(s, []).append(sk)
+        if by_source:
+            top_seed = max(by_source, key=lambda s: sum(cand[k]["final"] for k in by_source[s]))
+            echo = set(picks[:6])
+            picks2 = [s for s in sorted(by_source[top_seed], key=lambda s: cand[s]["final"],
+                                        reverse=True) if s not in echo][:top_n]
+            if len(picks2) >= 3:
+                rows.append({"key": "discover:%s" % top_seed, "external": True,
+                             "title": "Because you watched %s — find these" % top_seed,
+                             "items": [_ext_item(cand[s]["stub"], "Fans also watched")
+                                       for s in picks2]})
+    return rows
+
+
 def profile_summary(cards, tags_for, has_metadata, now):
     M = build_model(cards, tags_for, None, now)
     top = sorted(((t, s) for t, s in M["taste"].items()
@@ -484,9 +619,16 @@ def recommend_for_viewer():
     if cards is None:
         return {"ready": False, "rows": []}
     fs = FeatureSource()
-    return {"ready": True,
-            "rows": recommend_rows(cards, fs.tags, time.time(),
-                                   weights=load_reco_weights(), quality_for=fs.quality)}
+    now = time.time()
+    custom = load_reco_weights()
+    w = effective_weights(custom)
+    M = build_model(cards, fs.tags, fs.quality, now)
+    rows = recommend_rows(cards, fs.tags, now, weights=custom, quality_for=fs.quality, model=M)
+    try:
+        rows = rows + discover_rows(cards, M, w, now)   # external (TMDB) shelves
+    except Exception:
+        pass                                            # discovery is best-effort
+    return {"ready": True, "rows": rows, "tmdb": fs.has_metadata(cards)}
 
 
 def reco_config():

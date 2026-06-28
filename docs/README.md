@@ -4,6 +4,7 @@ The map of the project's documentation. Start here.
 
 ## Using & self-hosting Kadmu
 - **[../README.md](../README.md)** — what Kadmu is, quick start, features, CLI options.
+- **[REMOTE_STORAGE.md](REMOTE_STORAGE.md)** — stream media you keep on Dropbox, Google Drive, MEGA, S3/B2, a NAS, or your own server (mount it, then point Kadmu at it).
 - **[SECURITY.md](SECURITY.md)** — the threat model and the localhost/LAN security posture.
 - **[../deploy/README.md](../deploy/README.md)** — run it in Docker (the public read-only demo, or your own library).
 - **[BRAND.md](BRAND.md)** — the brand source of truth (colors, type, voice). Visual deck: [brand/kadmu-brand-guidelines.html](brand/kadmu-brand-guidelines.html).

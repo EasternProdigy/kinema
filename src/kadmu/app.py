@@ -37,6 +37,7 @@ from .security import (
 )
 from .media import build_demo_library, prune_cache
 from .library import purge_trash, start_indexer
+from . import tmdb, enrich
 
 def _cache_janitor():
     """Background sweep: every CACHE_SWEEP_INTERVAL seconds, clear out prepared
@@ -437,6 +438,13 @@ def main():
     # Build the search catalog in the background now that the roots are finalized,
     # so the first search is instant and complete.
     start_indexer()
+
+    # TMDB metadata layer (optional): load the saved key (env still wins) and start
+    # the enrichment worker, which matches the library to TMDB once the index is up.
+    tmdb.set_key(get_config().get("tmdbKey"))
+    enrich.start_enricher()
+    if tmdb.enabled():
+        enrich.request_enrich()
 
     # Cloud-attach: do an initial license check, then keep it fresh in the background.
     cloud.start_poller()

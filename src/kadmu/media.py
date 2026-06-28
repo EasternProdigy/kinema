@@ -423,6 +423,44 @@ def _h264_encoder():
     return enc
 
 
+# Encoders for the Archive feature (visually-lossless re-encode to a more efficient
+# codec). We use predictable software encoders that take -crf; hardware encoders vary
+# too much per-vendor to drive reliably here (a future enhancement). Cached.
+_ENCODERS_TEXT = "?"
+
+
+def _encoders_text():
+    global _ENCODERS_TEXT
+    if _ENCODERS_TEXT != "?":
+        return _ENCODERS_TEXT
+    if not FFMPEG:
+        return ""
+    try:
+        out = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],
+                             capture_output=True, timeout=15).stdout.decode("utf-8", "ignore")
+    except (subprocess.SubprocessError, OSError):
+        return ""    # transient: don't memoize, retry next call
+    _ENCODERS_TEXT = out
+    return out
+
+
+def _has_encoder(name):
+    return (" " + name) in _encoders_text()
+
+
+def av1_encoder():
+    """A CRF-driven AV1 encoder if present (SVT-AV1 preferred — libaom is far slower)."""
+    for c in ("libsvtav1", "libaom-av1"):
+        if _has_encoder(c):
+            return c
+    return None
+
+
+def hevc_encoder():
+    """A CRF-driven HEVC/H.265 encoder if present."""
+    return "libx265" if _has_encoder("libx265") else None
+
+
 def build_demo_library(dest):
     """Generate the sample clips into `dest` (idempotent). Returns True on success."""
     dest = Path(dest)

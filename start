@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Kadmu start command — run `./start` from the project root.
+# Usage:
+#   ./start                     # start with whatever library folders are saved
+#   ./start /path/to/Videos     # add a folder and start
+#   ./start --lan --password pw # serve on your home network with a password
+cd "$(dirname "$0")" || exit 1
+exec python3 src/server.py "$@"

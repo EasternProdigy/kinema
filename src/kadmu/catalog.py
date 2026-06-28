@@ -16,6 +16,7 @@ from .const import NATIVE_EXTS, VIDEO_EXTS, WATCHED_FRAC, natural_key
 from .store import resolve_within_roots, load_progress, load_ratings
 from .media import cache_key, _meta_snapshot
 from .library import clean_title, _index_snapshot
+from .archive import archived_keys, encoder_available
 
 _index_cache_lock = threading.Lock()
 
@@ -151,6 +152,10 @@ def build_catalog():
     meta_all = _meta_snapshot()
     progress = load_progress()
     ratings = load_ratings()
+    # Archive overlay (cheap: a set of already-archived paths + one encoder check). Powers
+    # the "ready to archive" suggestion on fully-watched titles — manual + auto-suggest.
+    akeys = archived_keys()
+    can_archive = encoder_available()
 
     def rate(key):
         return _rating_int(ratings.get(key))
@@ -165,22 +170,28 @@ def build_catalog():
                 last = max(last, pr.get("updated", 0) or 0)
                 if _finished(pr):
                     watched += 1
+        epcount = len(g["episodes"])
+        archived = sum(1 for ep in g["episodes"] if ep in akeys)
         shows.append({
             "id": sid, "kind": "show", "name": g["name"],
-            "seasonCount": len(g["seasons"]), "episodeCount": len(g["episodes"]),
+            "seasonCount": len(g["seasons"]), "episodeCount": epcount,
             "watched": watched, "mtime": g["mtime"], "lastWatched": last,
-            "rating": rate(sid),
+            "rating": rate(sid), "archived": archived,
+            "suggestArchive": can_archive and epcount > 0 and watched >= epcount and archived < epcount,
         })
     movies = []
     for m in grouped["movies"]:
         pr = progress.get(m["path"]) or {}
+        is_archived = m["path"] in akeys
+        watched = _finished(pr)
         movies.append({
             "id": m["id"], "kind": "movie", "name": m["name"], "path": m["path"],
             "ext": m["ext"], "size": m["size"], "mtime": m["mtime"], "year": m["year"],
             "playable": True, "direct": m["direct"],
             "duration": (meta_all.get(m["mkey"]) or {}).get("duration") or pr.get("duration"),
-            "position": pr.get("position", 0) or 0, "watched": _finished(pr),
-            "rating": rate(m["id"]),
+            "position": pr.get("position", 0) or 0, "watched": watched,
+            "rating": rate(m["id"]), "archived": 1 if is_archived else 0,
+            "suggestArchive": can_archive and watched and not is_archived,
         })
     shows.sort(key=lambda s: natural_key(s["name"]))
     movies.sort(key=lambda s: natural_key(s["name"]))

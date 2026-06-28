@@ -6,6 +6,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Reclaim disk — Archive a finished title.** A one-click background re-encode that shrinks a
+  watched show/movie to a smaller, still-watchable copy, kept in your library. Re-encodes to a
+  more efficient codec at full resolution (**visually-lossless** — honest about it: truly
+  *lossless* video can't be smaller, so this is imperceptible-loss, not bit-exact), default
+  **AV1** (plays natively), falling back to HEVC/H.264 by what your ffmpeg has. One bounded
+  background worker (one encode at a time), live progress + Cancel on the title page, and a
+  "ready to archive" flag on watched posters (auto-suggest; never compresses without your
+  click). Each file is verified valid + actually smaller before the original is moved to
+  `.kadmu-trash` (recoverable) and the smaller copy swapped in under the same name, so resume
+  and grouping survive; already-efficient files are skipped. Tunable via `KADMU_ARCHIVE_*`.
+- **Stream from cloud / remote storage.** Point Kadmu at media on Dropbox, Google Drive, MEGA,
+  S3/B2, a NAS, or your own server — mount it as a folder (provider app or rclone) and add it
+  in *Settings → Add cloud / remote storage…*. Your video still streams through your node, never
+  our servers. Full guide in [REMOTE_STORAGE.md](REMOTE_STORAGE.md). (Native, no-mount remote
+  sources are the planned Tier 2 — see [ROADMAP.md](ROADMAP.md).)
 - **A VLC-grade "Tune" sheet in the player (`T`).** One tidy tray gathers the new power-user
   controls so the bar stays clean: **video** — brightness / contrast / saturation, rotate,
   flip, zoom and a Fit/Crop/Stretch aspect mode (all non-destructive CSS); **audio** — a
