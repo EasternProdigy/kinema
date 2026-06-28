@@ -60,6 +60,24 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   the UI shows a "Manage billing" notice and you can still sign in. **Default self-host is
   completely unchanged and fully unlocked** (the gate is a no-op). Donations for the OSS side
   are wired separately (one-time Checkout, no account needed).
+- **Remote-from-anywhere over P2P (Phase 4b, built).** A new `cloud/` peer-to-peer layer —
+  **not shipped to self-hosters** — that lets you reach your home library from anywhere with the
+  **video streaming browser↔node directly, so our egress stays ≈ $0** (ROADMAP §5). The cloud is
+  only a **handshake broker**: a stdlib **signaling server** passes one WebRTC offer/answer
+  between a guest browser and the home **connector**, then gets out of the way. From there
+  [`cloud/wire.py`](../cloud/wire.py) tunnels the node's HTTP — the `api()` calls *and* the
+  byte-range video — over the data channel (with an `ABORT` frame on every seek so scrubbing
+  stays responsive); `src/web/js/remote.js` is the browser end, inert unless a remote session is
+  configured. The framing codec is unit-tested (8 tests) and the broker smoke-tested; the live
+  aiortc transport, the real-channel handshake, **share-a-link**, and an **MSE fragmented-MP4**
+  path for remote video are the integration follow-ups (see [cloud/README.md](../cloud/README.md)).
+  The open-source core stays **stdlib-only** — the lone WebRTC dependency (`aiortc`) is
+  quarantined to the connector in `cloud/`, and the core needs zero changes to be reachable.
+- **Scale & cost-control design (Phase 5).** [docs/PHASE_5_DESIGN.md](PHASE_5_DESIGN.md) lays out
+  the full hosted-scale plan — capped coturn relay + per-plan byte caps, sticky signaling LB,
+  SQLite→Litestream→R2 with a documented Postgres cutover, a Cloudflare-Free CDN with build-free
+  cache-busting, and Prometheus/Grafana over the Phase 3 `/metrics`. It's a design deliverable;
+  the production pieces are live infrastructure deferred until Cloud launch.
 - **Multi-user accounts (opt-in, `--accounts`).** Real sign-in for households and shared
   boxes, backed by an embedded **SQLite** database (`sqlite3`, still standard-library only —
   no `pip`). Each person gets their **own** resume points, My List, playlists and display

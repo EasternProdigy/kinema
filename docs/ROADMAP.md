@@ -1,13 +1,18 @@
 # Kadmu Roadmap — from LAN app to dual self-host + hosted product
 
-> Status: **in progress.** **Phase 1 (the VLC-grade player + a genuinely good frontend +
-> a local-data discovery home + LAN watch party) is shipped** — only metadata enrichment
-> (the opt-in TMDB/.nfo call) is deliberately deferred (see §6.3). **Phase 2 (accounts &
-> multi-user, opt-in `--accounts`) is shipped**, and **Phase 3 (public-hardening & ops —
-> built-in TLS, per-IP rate limiting, `/healthz` + `/metrics` + structured logging, per-user
-> stream quotas) is shipped** too. See the §1/§2/§3 markers and the changelog. This document
-> remains the agreed direction; we keep implementing phase by phase, settling the remaining
-> open decisions in §6 as we go.
+> Status: **all roadmap phases are now on `main`.** Self-host is fully shipped:
+> **Phase 1** (VLC-grade player + a genuinely good frontend + a local-data discovery home +
+> LAN watch party — only the opt-in TMDB/.nfo metadata call is deliberately deferred, §6.3),
+> **Phase 2** (accounts & multi-user, opt-in `--accounts`), and **Phase 3** (public-hardening
+> & ops — built-in TLS, per-IP rate limiting, `/healthz` + `/metrics` + structured logging,
+> per-user stream quotas) are **✅ shipped**. The hosted layer lands in `cloud/` (not shipped to
+> self-hosters): **Phase 4a** (accounts/billing/licensing control-plane) is **🚧 scaffolded —
+> runs end-to-end in mock mode, needs live Stripe keys**; **Phase 4b** (P2P/WebRTC
+> remote-from-anywhere) is **🚧 built — needs real-network integration testing** (and an
+> fMP4 remux path for remote video, §4b); **Phase 5** (scale & cost control) is **📐 designed**
+> ([docs/PHASE_5_DESIGN.md](PHASE_5_DESIGN.md)) — its production pieces are live infrastructure
+> (TURN/CDN/object-storage/Stripe) that needs external accounts and spend, deferred until Cloud
+> launch. See the §1–§5 markers and the changelog.
 
 Goal: the **best browser-based player for your own video files** — VLC-grade per-file power,
 Netflix-grade ease of use — shipped as **two editions from one codebase**:
@@ -237,18 +242,38 @@ paid wrapper — egress ≈ $0 (license checks + app shell only).
   (managed updates, hosted metadata service so users need no TMDB key, priority support, polish)
   and position remote access (4b) as the reason to subscribe.
 
-### Phase 4b — Cloud v2: remote-from-anywhere (P2P) *(edition: Hosted)* — the headline upgrade
+### Phase 4b — Cloud v2: remote-from-anywhere (P2P) *(edition: Hosted)* — 🚧 BUILT (needs real-network integration testing)
 - **P2P remote access (WebRTC):** browser ↔ home node directly; cloud brokers only the handshake
   (signaling). Tunnel the existing byte-range streaming over a WebRTC data channel to keep seeking.
 - **Relay fallback policy** for hostile-NAT minority: capped quality/usage, paid add-on, or BYO
   relay — never default-tunnel-all-video (see §5).
 - Cloud-only perks: off-site access (no port-forward/DDNS), share-a-link to a friend.
+> **Landed:** the `cloud/` P2P layer — **`wire.py`** (the HTTP-over-datachannel framing codec,
+> 8 unit tests green), **`signaling/server.py`** (the stdlib handshake broker + HMAC entitlement
+> gate, smoke-tested), **`connector/connector.py`** (the home-node aiortc endpoint — the one
+> place a non-stdlib dep is allowed, quarantined to `cloud/`), and **`src/web/js/remote.js`**
+> (browser `RTCPeerConnection` + a `fetch` proxy that tunnels `api()` + byte-range video over
+> the channel; loads right after `util.js`, inert unless a remote session is configured). The
+> core needs **zero** changes to be reached remotely. See [cloud/README.md](../cloud/README.md).
+> **Still open (needs two real networked peers + a browser to exercise):** the live aiortc
+> ICE/DTLS transport, the `RTCPeerConnection` handshake under a real channel, **share-a-link**
+> (designed, not built), and the **MSE fragmented-MP4** path — the node's remux emits plain MP4,
+> so remote *video* needs an fMP4 profile in `build_remux` (small clips already fall back to a
+> progressive blob). This is the main follow-up.
 
-### Phase 5 — Scale & cost control *(edition: Hosted)*
+### Phase 5 — Scale & cost control *(edition: Hosted)* — 📐 DESIGNED
 - Signaling/relay infra scaling; CDN for the static app shell.
 - Horizontal scale of the control plane: stateless API + shared DB; ThreadingHTTPServer limits
   (~100–200 concurrent/node) inform the self-host node, not the (now thin) cloud.
 - Relay-cost monitoring + per-plan caps so the ~10–20% relay minority can't blow the budget.
+> **Design-only deliverable:** [docs/PHASE_5_DESIGN.md](PHASE_5_DESIGN.md) specifies the whole
+> scale/cost-control plan (capped coturn relay + per-plan byte caps, sticky-by-node-id signaling
+> LB, SQLite→Litestream→R2 then a documented Postgres cutover, a Cloudflare-Free CDN with
+> build-free `?v=APP_VERSION` cache-busting, Prometheus/Grafana over the Phase 3 `/metrics`),
+> with service contracts to 4a/4b and an ordered build plan. **Implementation is not code —
+> it's live infrastructure** (TURN servers, CDN, object storage, real Stripe keys) that requires
+> external accounts/DNS/spend to stand up; it is intentionally deferred until Cloud launch demand
+> justifies the run cost.
 
 ---
 

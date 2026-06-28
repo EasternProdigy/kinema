@@ -208,11 +208,14 @@ above.
 - [src/web/js/](src/web/js/) — vanilla JS, **one `state` object, no framework, no modules**. The
   old `app.js` was split into **ordered classic `<script>` files** that share the global scope;
   `index.html` loads them in a fixed order and `main.js` boots last:
-  `util → icons → state → routing → library → home → manage → settings → accounts → player →
-  audio → filters → tune → playerui → party → palette → keys → main`. (`audio`/`filters` =
-  the Web-Audio graph + CSS video adjustments; `tune` = the player Tune sheet that drives them;
-  `party` = watch-party SSE client; `palette` = the `Ctrl/⌘+K` command palette; `home` = the
-  hero + recently-added rail + storyboard hover-preview.) Because they're classic scripts,
+  `util → remote → icons → state → routing → library → home → manage → settings → accounts →
+  cloud → player → audio → filters → tune → playerui → party → palette → keys → main`.
+  (`audio`/`filters` = the Web-Audio graph + CSS video adjustments; `tune` = the player Tune
+  sheet that drives them; `party` = watch-party SSE client; `palette` = the `Ctrl/⌘+K` command
+  palette; `home` = the hero + recently-added rail + storyboard hover-preview; `cloud` = the
+  Phase-4a inactive-subscription overlay + `api()` 402 hook, a no-op unless cloud-attached;
+  `remote` = the Phase-4b P2P fetch proxy — loaded right after `util.js` so it can wrap `api()`
+  before any call, and inert unless a remote session is configured.) Because they're classic scripts,
   top-level `const`/`function` in one file are visible to the others, so cross-file calls work
   unchanged — **the only constraints are load order (`util.js` defines `$` first; `main.js`'s
   init IIFE runs last) and declaring each name once.** If you add a file, add a `<script>` tag
