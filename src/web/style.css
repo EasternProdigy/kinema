@@ -1658,8 +1658,11 @@ body.view-list .folder-ic { border-radius: var(--radius); }
 }
 .rail-arrow.left { left: 0; border-radius: 0 var(--radius) var(--radius) 0; }
 .rail-arrow.right { right: 0; border-radius: var(--radius) 0 0 var(--radius); }
-.rail-wrap.scrollable:hover .rail-arrow { opacity: 1; pointer-events: auto; }
-.rail-arrow:hover { background: rgba(10,8,6,.8); }
+/* Arrows are the only scroll affordance now (the scrollbar is hidden) — so show them
+   whenever the rail overflows, brightening on hover, instead of hover-only. */
+.rail-wrap.scrollable .rail-arrow { opacity: .82; pointer-events: auto; }
+.rail-wrap.scrollable:hover .rail-arrow { opacity: 1; }
+.rail-arrow:hover { background: rgba(10,8,6,.85); }
 .rail-arrow::before {
   content: ""; width: 13px; height: 13px; border-right: 2.5px solid #fff; border-bottom: 2.5px solid #fff;
 }
@@ -1677,13 +1680,13 @@ body[data-size="large"] .poster-rail .row-rail { grid-auto-columns: 200px; }
 .rail-section .row-rail {
   display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr);
   gap: var(--grid-gap); overflow-x: auto; overflow-y: hidden;
-  padding-bottom: 8px; scroll-snap-type: x proximity; scrollbar-width: thin;
+  padding-bottom: 8px; scroll-snap-type: x proximity;
+  scrollbar-width: none;   /* hidden — scroll with the on-rail arrows (or swipe on touch) */
 }
 body[data-size="small"] .rail-section .row-rail { grid-auto-columns: minmax(170px, 1fr); }
 body[data-size="large"] .rail-section .row-rail { grid-auto-columns: minmax(300px, 1fr); }
 .rail-section .row-rail .video-card { scroll-snap-align: start; }
-.rail-section .row-rail::-webkit-scrollbar { height: 8px; }
-.rail-section .row-rail::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+.rail-section .row-rail::-webkit-scrollbar { display: none; }   /* no horizontal scrollbar */
 
 /* ===================== catalog: Shows / Movies poster grid ===================== */
 .home-bar { display: flex; justify-content: flex-end; margin: -4px 0 18px; }

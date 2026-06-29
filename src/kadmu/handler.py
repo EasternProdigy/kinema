@@ -99,8 +99,9 @@ _VERSIONABLE = re.compile(r'(src|href)="(/(?:js/[^"?]+\.js|style\.css|qr\.js))"'
 
 def _cache_for_asset():
     """Cache-Control for /js, /fonts, /style.css: immutable long-cache under the CDN flag,
-    else the self-host default (no header → easy local edits)."""
-    return IMMUTABLE_CACHE if rt.CDN else False
+    else `no-cache` so the browser always revalidates — i.e. you edit a file, refresh, and
+    actually see it (a bare missing header lets browsers heuristically cache and hide edits)."""
+    return IMMUTABLE_CACHE if rt.CDN else "no-cache"
 
 
 def _version_shell_html(data: bytes) -> bytes:

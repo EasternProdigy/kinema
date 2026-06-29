@@ -2,15 +2,20 @@
    Strategy: network-first for the shell (so new code ships the moment you're
    online), falling back to the cached shell when offline. The API and media
    (stream / thumb / transcode / storyboard) are never intercepted — they're
-   large, dynamic, and must always hit the server. */
+   large, dynamic, and must always hit the server.
+
+   Bump CACHE whenever the shell file list changes: the new worker's `activate`
+   deletes every older cache, so clients can't get stuck on a stale precache. */
 "use strict";
-const CACHE = "kadmu-shell-v1";
+const CACHE = "kadmu-shell-v2";
 const SHELL = [
   "/", "/style.css", "/qr.js", "/favicon.svg", "/manifest.webmanifest",
-  "/js/util.js", "/js/icons.js", "/js/state.js", "/js/routing.js", "/js/library.js",
-  "/js/home.js", "/js/manage.js", "/js/settings.js", "/js/accounts.js", "/js/player.js",
-  "/js/audio.js", "/js/filters.js", "/js/tune.js", "/js/playerui.js", "/js/party.js",
-  "/js/palette.js", "/js/keys.js", "/js/main.js",
+  "/js/util.js", "/js/remote.js", "/js/icons.js", "/js/state.js", "/js/routing.js",
+  "/js/library.js", "/js/home.js", "/js/catalog.js", "/js/discover.js", "/js/archive.js",
+  "/js/sources.js", "/js/manage.js", "/js/settings.js", "/js/accounts.js", "/js/cloud.js",
+  "/js/player.js", "/js/adaptive.js", "/js/audio.js", "/js/filters.js", "/js/tune.js",
+  "/js/playerui.js", "/js/party.js", "/js/palette.js", "/js/tv.js", "/js/cast.js",
+  "/js/keys.js", "/js/onboard.js", "/js/main.js",
 ];
 
 self.addEventListener("install", (e) => {

@@ -581,9 +581,20 @@ def enrich_once(force=False, limit=BATCH):
         match = load_match()
         cache = load_cache()
         todo = [c for c in cards if c["id"] not in match]
+        # Schema-upgrade backfill: matched titles whose cached detail predates a field we
+        # now store (here: `trailer`, added alongside `collection`). We re-fetch their
+        # detail by the known tmdb id — no re-search — so new metadata fields fill in
+        # automatically over the next few enrich cycles, without a full force re-match.
+        def _stale(c):
+            k = match_key(match.get(c["id"]))
+            if k in (None, "none"):
+                return False
+            d = cache.get(k)
+            return isinstance(d, dict) and "trailer" not in d
+        stale = [c for c in cards if _stale(c)]
         remaining = len(todo)
         _busy[0] = True
-        processed = matched = 0
+        processed = matched = refreshed = 0
         now = time.time()
         try:
             for card in todo[:limit]:
@@ -598,14 +609,25 @@ def enrich_once(force=False, limit=BATCH):
                                      "year": detail.get("year"), "ts": now}
                 cache[key] = detail
                 matched += 1
-            if processed:
+            # Spend any leftover budget refreshing stale-schema details (re-fetch by id).
+            for card in stale[:max(0, limit - processed)]:
+                rec = match.get(card["id"]) or {}
+                kind, tid, key = rec.get("kind"), rec.get("tmdb_id"), match_key(rec)
+                if kind not in ("movie", "tv") or tid is None or not key:
+                    continue
+                raw = tmdb.details(kind, int(tid))
+                if isinstance(raw, dict) and raw.get("id") is not None:
+                    cache[key] = _compact(kind, int(tid), raw)
+                    refreshed += 1
+            if processed or refreshed:
                 save_json(MATCH_PATH, match)
                 save_json(CACHE_PATH, cache)
         finally:
             _busy[0] = False
             _last_run[0] = now
     return {"enabled": True, "ready": True, "processed": processed,
-            "matched": matched, "remaining": max(0, remaining - processed)}
+            "matched": matched, "refreshed": refreshed,
+            "remaining": max(0, remaining - processed)}
 
 
 def set_manual_match(card_id, kind, tmdb_id):
@@ -679,8 +701,8 @@ def _enrich_loop():
                 r = enrich_once(limit=BATCH)
                 if not r.get("ready"):
                     wait = 5.0                          # catalog not built yet; retry soon
-                elif r.get("remaining", 0) > 0 or r.get("processed", 0) > 0:
-                    wait = 1.5                          # more to chew through; come back fast
+                elif r.get("remaining", 0) > 0 or r.get("processed", 0) > 0 or r.get("refreshed", 0) > 0:
+                    wait = 1.5                          # more to match / backfill; come back fast
         except Exception:
             pass
         _event.wait(timeout=wait)
