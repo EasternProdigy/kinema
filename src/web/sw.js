@@ -7,7 +7,7 @@
    Bump CACHE whenever the shell file list changes: the new worker's `activate`
    deletes every older cache, so clients can't get stuck on a stale precache. */
 "use strict";
-const CACHE = "kadmu-shell-v2";
+const CACHE = "kadmu-shell-v3";
 const SHELL = [
   "/", "/style.css", "/qr.js", "/favicon.svg", "/manifest.webmanifest",
   "/js/util.js", "/js/remote.js", "/js/icons.js", "/js/state.js", "/js/routing.js",
@@ -15,7 +15,7 @@ const SHELL = [
   "/js/sources.js", "/js/manage.js", "/js/settings.js", "/js/accounts.js", "/js/cloud.js",
   "/js/player.js", "/js/adaptive.js", "/js/audio.js", "/js/filters.js", "/js/tune.js",
   "/js/playerui.js", "/js/party.js", "/js/palette.js", "/js/tv.js", "/js/cast.js",
-  "/js/keys.js", "/js/onboard.js", "/js/main.js",
+  "/js/preview.js", "/js/keys.js", "/js/onboard.js", "/js/main.js",
 ];
 
 self.addEventListener("install", (e) => {

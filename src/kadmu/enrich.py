@@ -464,6 +464,27 @@ def _us_cert(kind, raw):
     return "", None
 
 
+# Bump when _compact() gains a field worth backfilling onto already-matched titles;
+# enrich_once re-fetches any cached detail whose `_schema` is older (see _stale).
+_SCHEMA = 3
+
+
+def _logo(raw):
+    """Best title-logo path from TMDB images — the styled wordmark streaming UIs show
+    in place of plain text — preferring English, then language-neutral, highest-voted.
+    '' when there's none."""
+    logos = ((raw.get("images") or {}).get("logos")) or []
+    if not logos:
+        return ""
+
+    def rank(l):
+        lang = l.get("iso_639_1") or ""
+        return (0 if lang == "en" else 1 if lang == "" else 2,
+                -float(l.get("vote_average") or 0))
+
+    return (sorted(logos, key=rank)[0].get("file_path")) or ""
+
+
 def _trailer(raw):
     """The best YouTube trailer *key* from TMDB's videos, or '' — preferring an
     official 'Trailer', then any trailer, then a teaser. YouTube only: it's the one
@@ -546,7 +567,9 @@ def _compact(kind, tid, raw):
         "cert": cert, "maturity": maturity,    # parental controls
         "trailer": _trailer(raw),              # YouTube key (deep-link, no embed)
         "collection": _collection(raw),        # franchise grouping (movies)
+        "logo": _logo(raw),                    # styled title wordmark (hero / title page)
         "recs": recs,
+        "_schema": _SCHEMA,
     }
 
 
@@ -601,16 +624,16 @@ def enrich_once(force=False, limit=BATCH):
         match = load_match()
         cache = load_cache()
         todo = [c for c in cards if c["id"] not in match]
-        # Schema-upgrade backfill: matched titles whose cached detail predates a field we
-        # now store (here: `trailer`, added alongside `collection`). We re-fetch their
-        # detail by the known tmdb id — no re-search — so new metadata fields fill in
-        # automatically over the next few enrich cycles, without a full force re-match.
+        # Schema-upgrade backfill: matched titles whose cached detail predates the current
+        # `_schema` (i.e. is missing fields we now store — trailer, collection, logo, …).
+        # We re-fetch their detail by the known tmdb id — no re-search — so new metadata
+        # fills in automatically over the next few enrich cycles, with no full re-match.
         def _stale(c):
             k = match_key(match.get(c["id"]))
             if k in (None, "none"):
                 return False
             d = cache.get(k)
-            return isinstance(d, dict) and "trailer" not in d
+            return isinstance(d, dict) and d.get("_schema") != _SCHEMA
         stale = [c for c in cards if _stale(c)]
         remaining = len(todo)
         _busy[0] = True

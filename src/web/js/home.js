@@ -73,6 +73,9 @@ function renderHeroCarousel() {
     if (!slide) return;
     const bd = $(".hero-backdrop", slide), img = $(".hero-backdrop img", slide);
     if (img) { img.onerror = () => bd && bd.classList.add("noimg"); img.src = heroBackdrop(it); }
+    // Title logo → plain text if the logo image fails to load.
+    const logo = $(".hero-logo", slide);
+    if (logo) logo.onerror = () => { logo.classList.add("hidden"); logo.nextElementSibling?.classList.remove("hidden"); };
     $(".hero-play", slide)?.addEventListener("click", () => playTitle(it.id));
     $(".hero-open", slide)?.addEventListener("click", () => openTitle(it.id));
   });
@@ -114,7 +117,8 @@ function heroSlide(it, i) {
        <div class="hero-scrim"></div>
        <div class="hero-content">
          <div class="hero-eyebrow">${escapeHtml(eyebrow)}</div>
-         <h1 class="hero-title">${escapeHtml(it.name)}</h1>
+         ${it.logo ? `<img class="hero-logo" alt="${escapeHtml(it.name)}" src="${escapeHtml(it.logo)}" />` : ""}
+         <h1 class="hero-title${it.logo ? " hidden" : ""}">${escapeHtml(it.name)}</h1>
          <div class="hero-sub">${escapeHtml(meta.filter(Boolean).join("  ·  "))}</div>
          ${chips.length ? `<div class="hero-chips">${chips.join("")}</div>` : ""}
          ${overview}

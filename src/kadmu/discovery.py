@@ -44,6 +44,7 @@ def _facet_lookup():
             # poster + cinematic backdrop), plus a synopsis + maturity for the hero.
             "poster": tmdb.poster_url(d.get("poster_path"), "w342"),
             "backdrop": tmdb.poster_url(d.get("backdrop_path"), "w780"),
+            "logo": tmdb.poster_url(d.get("logo"), "w500"),   # styled wordmark for the hero
             "overview": d.get("overview") or "",
             "maturity": d.get("cert") or "",
         }
@@ -92,6 +93,7 @@ def attach_title_detail(detail):
         "votes": d.get("vote_count") or 0,
         "poster": enrich.poster_url(d.get("poster_path")),
         "backdrop": tmdb.poster_url(d.get("backdrop_path"), "w780"),
+        "logo": tmdb.poster_url(d.get("logo"), "w500"),   # styled title wordmark
         "maturity": d.get("cert") or "",
         "runtime": d.get("runtime"),
         "trailer": ("https://www.youtube.com/watch?v=%s" % d["trailer"]) if d.get("trailer") else "",

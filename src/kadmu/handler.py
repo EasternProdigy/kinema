@@ -16,9 +16,10 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from . import archive, cloud, dlna, discovery, hls, ops, rt, sources
 from .const import (
-    APP_NAME, APP_VERSION, FFMPEG, MATURITY_LEVELS, MATURITY_MAX, MIME,
-    MP4_COPY_ACODECS, MP4_COPY_VCODECS, NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES,
-    REQUEST_TIMEOUT, SESSIONS, SESSIONS_LOCK, SUBTITLE_EXTS, TRANSCODE_LADDER,
+    APP_NAME, APP_VERSION, AFFILIATE_WATCH, CLOUD_SITE, DONATE_URL, FFMPEG,
+    MATURITY_LEVELS, MATURITY_MAX, MIME, MP4_COPY_ACODECS, MP4_COPY_VCODECS,
+    NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES, REQUEST_TIMEOUT, SESSIONS,
+    SESSIONS_LOCK, SHOW_UPSELL, SUBTITLE_EXTS, TRANSCODE_LADDER,
     WEB_DIR, _REQ, _io_lock, _stream_sem, load_json, save_json,
 )
 from .accounts import (
@@ -686,7 +687,27 @@ class Handler(BaseHTTPRequestHandler):
             st["needsSetup"] = user_count() == 0
         st["cloud"] = rt.CLOUD_ENABLED
         if rt.CLOUD_ENABLED:
-            st["entitlement"] = cloud.entitlement_state()
+            ent = cloud.entitlement_state()
+            st["entitlement"] = ent
+            st["plan"] = ent.get("plan")
+            st["planLabel"] = cloud.plan_label()
+            st["features"] = ent.get("features") or {}
+        else:
+            st["plan"] = None
+            st["planLabel"] = "Self-host"
+            st["features"] = {}
+        # Upsell surface — present in EVERY mode (incl. self-host) so the app can
+        # advertise Kadmu Cloud + a donate link + an affiliate base for "where to
+        # watch". Just URLs; no outbound call. A host can hide it all (SHOW_UPSELL).
+        if SHOW_UPSELL:
+            st["upsell"] = {
+                "site": CLOUD_SITE,
+                "pricing": CLOUD_SITE + "/pricing",
+                "donate": DONATE_URL,
+                "affiliate": AFFILIATE_WATCH,
+                # the self-host install isn't a paying tenant — show the "get Cloud" pitch
+                "cloudActive": rt.CLOUD_ENABLED and cloud.entitlement_active(),
+            }
         return st
 
     # -- storage overview (Settings → Storage) ------------------------------ #

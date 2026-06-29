@@ -8,7 +8,7 @@ import hmac
 import secrets
 import time
 
-from . import licensing
+from . import const, licensing
 from .const import LICENSE_PROOF_SKEW
 from .db import db, write_lock
 
@@ -149,5 +149,6 @@ def license_for_tenant(tenant_row):
     touch_tenant(tenant_row["id"])
     token, payload = licensing.issue(
         tenant_row["id"], tenant_row["secret"], tenant_row["account_id"],
-        sub["plan"], sub["status"], sub["current_period_end"])
+        sub["plan"], sub["status"], sub["current_period_end"],
+        features=const.features_for_plan(sub["plan"]))   # tier → cloud feature flags
     return token, payload

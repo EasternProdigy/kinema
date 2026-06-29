@@ -4,7 +4,7 @@ webhook route and the mock success-redirect path run identical logic."""
 from __future__ import annotations
 import time
 
-from . import accounts, entitlements
+from . import accounts, const, entitlements
 from .db import db, webhook_seen
 
 
@@ -36,7 +36,10 @@ def process_event(event):
     obj = ((event.get("data") or {}).get("object")) or {}
 
     if etype == "checkout.session.completed":
-        if obj.get("mode") == "payment":          # a donation
+        if obj.get("mode") == "payment":          # one-time: a lifetime purchase or a donation
+            plan = _plan_from(obj, default="")
+            if plan and (const.PLANS.get(plan) or {}).get("one_time"):
+                return _complete_onetime_purchase(obj, plan)
             _complete_donation(obj)
             return "donation_recorded"
         return _complete_subscription_checkout(obj)
@@ -78,6 +81,25 @@ def _complete_subscription_checkout(sess):
     entitlements.upsert_subscription(aid, sub_id, plan, "active", period_end=period_end)
     entitlements.provision_tenant(aid)
     return "subscription_active"
+
+
+def _complete_onetime_purchase(sess, plan):
+    """A lifetime (one-time) purchase → a perpetual entitlement. We record it as a
+    subscription row with a far-future period end and no Stripe subscription to ever
+    cancel it, so active_subscription() keeps returning it."""
+    row = _account_for_session(sess)
+    if row is None:
+        return "no_account"
+    aid = row["id"]
+    customer_id = sess.get("customer")
+    if customer_id and not row["stripe_customer"]:
+        accounts.set_stripe_customer(aid, customer_id)
+    # ~100 years out = perpetual; key by the checkout session id (idempotent re-delivery).
+    period_end = time.time() + 100 * 365 * 86400
+    entitlements.upsert_subscription(
+        aid, sess.get("id") or f"lifetime_{aid}", plan, "active", period_end=period_end)
+    entitlements.provision_tenant(aid)
+    return "lifetime_active"
 
 
 def _ensure_subscription_row(obj):

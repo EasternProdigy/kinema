@@ -63,31 +63,101 @@ else:
 # (P2P still works — see cloud/metering/caps.py); 0 ⇒ the plan grants no relay. `relay_max_height`
 # is the quality ceiling the connector clamps to on a relay candidate pair (cloud/metering/caps.py).
 _GiB = 1024 ** 3
+
+# Tiered feature sets minted into each license (see licensing.issue + features_for_plan).
+# The node reads these to light up cloud-delivered conveniences (src/kadmu/cloud.feature):
+#   remote        — watch from anywhere (P2P)
+#   share_link    — private, time-limited link to one title
+#   relay         — TURN relay fallback for hostile NATs (metered + capped, see relay_cap_bytes)
+#   backup        — off-site backup of settings/history
+#   metadata      — managed TMDB (no key) ·  subtitles — managed subtitle fetch
+#   homes         — how many home nodes one account may attach
+#   priority_support
+# LOCAL player features are NEVER gated here — only cloud conveniences. Free self-host has none
+# of these (no cloud), and that's fine: those features simply require the hosted connection.
+_PLUS = {"cloud": True, "remote": True, "share_link": True, "relay": True,
+         "backup": True, "metadata": True, "subtitles": True, "homes": 1, "priority_support": False}
+_FAMILY = {**_PLUS, "homes": 3}
+_PRO = {**_PLUS, "homes": 5, "priority_support": True}
+
 PLANS = {
+    # --- Plus (the entry plan; ids kept as monthly/yearly for Stripe/webhook continuity) ---
     "monthly": {
-        "id": "monthly",
-        "name": "Kadmu Cloud",
-        "cadence": "monthly",
-        "price_cents": 500,
-        "interval": "month",
+        "id": "monthly", "name": "Plus", "tier": "plus", "cadence": "monthly",
+        "price_cents": 500, "interval": "month",
         "stripe_price": os.environ.get("STRIPE_PRICE_MONTHLY", ""),
-        "blurb": "Accounts, billing, and managed convenience. Cancel anytime.",
+        "blurb": "Watch from anywhere. One home. Cancel anytime.",
         "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_MONTHLY_GIB", "100")) * _GiB,
-        "relay_max_height": 720,
+        "relay_max_height": 720, "features": _PLUS,
     },
     "yearly": {
-        "id": "yearly",
-        "name": "Kadmu Cloud",
-        "cadence": "yearly",
-        "price_cents": 5000,
-        "interval": "year",
+        "id": "yearly", "name": "Plus", "tier": "plus", "cadence": "yearly",
+        "price_cents": 5000, "interval": "year",
         "stripe_price": os.environ.get("STRIPE_PRICE_YEARLY", ""),
         "blurb": "Two months free vs. monthly.",
         "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_YEARLY_GIB", "100")) * _GiB,
-        "relay_max_height": 720,
+        "relay_max_height": 720, "features": _PLUS,
+    },
+    # --- Family (multiple homes, 1080p relay, bigger cap) ---
+    "family_monthly": {
+        "id": "family_monthly", "name": "Family", "tier": "family", "cadence": "monthly",
+        "price_cents": 900, "interval": "month",
+        "stripe_price": os.environ.get("STRIPE_PRICE_FAMILY_MONTHLY", ""),
+        "blurb": "Up to 3 homes, sharp 1080p relay, more headroom.",
+        "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_FAMILY_GIB", "250")) * _GiB,
+        "relay_max_height": 1080, "features": _FAMILY,
+    },
+    "family_yearly": {
+        "id": "family_yearly", "name": "Family", "tier": "family", "cadence": "yearly",
+        "price_cents": 9000, "interval": "year",
+        "stripe_price": os.environ.get("STRIPE_PRICE_FAMILY_YEARLY", ""),
+        "blurb": "Two months free vs. monthly.",
+        "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_FAMILY_GIB", "250")) * _GiB,
+        "relay_max_height": 1080, "features": _FAMILY,
+    },
+    # --- Pro (power users / many nodes, highest relay, priority support) ---
+    "pro_monthly": {
+        "id": "pro_monthly", "name": "Pro", "tier": "pro", "cadence": "monthly",
+        "price_cents": 1500, "interval": "month",
+        "stripe_price": os.environ.get("STRIPE_PRICE_PRO_MONTHLY", ""),
+        "blurb": "Up to 5 homes, top relay quality + cap, priority support.",
+        "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_PRO_GIB", "500")) * _GiB,
+        "relay_max_height": 1080, "features": _PRO,
+    },
+    "pro_yearly": {
+        "id": "pro_yearly", "name": "Pro", "tier": "pro", "cadence": "yearly",
+        "price_cents": 15000, "interval": "year",
+        "stripe_price": os.environ.get("STRIPE_PRICE_PRO_YEARLY", ""),
+        "blurb": "Two months free vs. monthly.",
+        "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_PRO_GIB", "500")) * _GiB,
+        "relay_max_height": 1080, "features": _PRO,
+    },
+    # --- Lifetime (one-time). Relay is deliberately modest: lifetime + uncapped relay is a
+    # margin trap, so it leans P2P-first with a small relay allowance. Billed as a one-time
+    # Stripe payment (mode=payment) → a perpetual entitlement (see webhooks). ---
+    "lifetime": {
+        "id": "lifetime", "name": "Lifetime", "tier": "plus", "cadence": "once",
+        "price_cents": 14900, "interval": "once", "one_time": True,
+        "stripe_price": os.environ.get("STRIPE_PRICE_LIFETIME", ""),
+        "blurb": "Pay once. Watch from anywhere forever (P2P-first, modest relay).",
+        "relay_cap_bytes": int(os.environ.get("KADMU_RELAY_CAP_LIFETIME_GIB", "50")) * _GiB,
+        "relay_max_height": 720, "features": {**_PLUS, "lifetime": True},
     },
 }
 DEFAULT_PLAN = "monthly"
+
+# Plans shown on the public /pricing page, in order (Plus/Family/Pro toggle monthly↔yearly
+# in the UI; lifetime stands alone).
+PRICING_TIERS = ["plus", "family", "pro"]
+PRICING_LIFETIME = "lifetime"
+
+
+def features_for_plan(plan_id):
+    """The feature set to mint into a tenant's license for a given plan. Falls back to
+    the default plan's features for an unknown id."""
+    p = PLANS.get(plan_id) or PLANS.get(DEFAULT_PLAN) or {}
+    return dict(p.get("features") or {"cloud": True, "remote": False})
+
 
 # Map of plan id → monthly relay-byte cap, handed to the metering layer so a pricing change
 # here needs no metering redeploy (cloud/metering/caps.relay_allowed).

@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Cinematic polish — it now *feels* like a streaming service.** Three upgrades:
+  **TMDB title logos** (the styled wordmark) on the hero and title page instead of plain text,
+  with a clean fall-back to text if a logo's missing; **autoplay hover-previews** — brush a
+  poster and its clip plays muted right in the tile (strictly bounded: one at a time, only
+  native files that stream straight off disk, and skipped on touch / reduced-motion / TV mode /
+  while watching, so a hover never starts an ffmpeg job); and **skeleton shimmer** on poster
+  placeholders so the catalog reads as premium-loading instead of flashing empty. Logos backfill
+  automatically onto already-matched titles (schema-versioned re-fetch), and the image proxy now
+  passes SVG logos too.
 - **Always-on recommendations — the home is never empty.** Discovery rails (TMDB picks
   to watch next) now show **beneath your own catalog**, not only when the library is empty —
   so a brand-new or tiny library still has something to browse. They're **seeded by your

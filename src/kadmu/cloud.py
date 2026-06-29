@@ -197,7 +197,8 @@ def entitlement_state():
                 "manageUrl": rt.CLOUD_URL + "/dashboard"}
     exp = float(payload.get("exp", 0))
     grace = float(payload.get("grace", 0))
-    base = {"cloud": True, "plan": payload.get("plan"),
+    feats = payload.get("features") if isinstance(payload.get("features"), dict) else {}
+    base = {"cloud": True, "plan": payload.get("plan"), "features": feats,
             "until": exp, "manageUrl": rt.CLOUD_URL + "/dashboard"}
     if now < exp:
         return {**base, "active": True, "status": payload.get("status", "active")}
@@ -212,3 +213,24 @@ def entitlement_state():
 
 def entitlement_active():
     return entitlement_state()["active"]
+
+
+def feature(name, default=False):
+    """Whether the active license grants a named cloud feature (e.g. 'remote',
+    'share_link', 'backup'). Self-host (cloud off) returns `default` — local features
+    are never gated this way; this only governs cloud-delivered conveniences."""
+    st = entitlement_state()
+    if not st.get("cloud"):
+        return default
+    if not st.get("active"):
+        return False
+    feats = st.get("features") or {}
+    return bool(feats.get(name, default))
+
+
+def plan_label():
+    """A human label for the current plan ('Self-host' when not cloud-attached)."""
+    st = entitlement_state()
+    if not st.get("cloud"):
+        return "Self-host"
+    return (st.get("plan") or "Kadmu Cloud").replace("_", " ").title()

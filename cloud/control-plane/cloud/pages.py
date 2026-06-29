@@ -106,33 +106,75 @@ def landing():
     return layout("Kadmu Cloud — your personal cinema, from anywhere", body)
 
 
+def _per(p):
+    return {"month": "/mo", "year": "/yr", "once": " once"}.get(p.get("interval"), "")
+
+
+def _plan_by(tier, cadence):
+    for p in const.PLANS.values():
+        if p.get("tier") == tier and p.get("cadence") == cadence:
+            return p
+    return None
+
+
+# Human "what's included" bullets per tier (the license features in plain English).
+_GiB = 1024 ** 3
+_TIER_BULLETS = {
+    "plus":   ["Watch from anywhere (peer-to-peer)", "1 home", "Share-a-link to one title",
+               "Managed metadata &amp; subtitles", "Off-site settings backup"],
+    "family": ["Everything in Plus", "Up to 3 homes", "Sharp 1080p relay", "More relay headroom"],
+    "pro":    ["Everything in Family", "Up to 5 homes", "Top relay quality &amp; cap", "Priority support"],
+}
+_TIER_TAG = {"family": '<span class="tag">Most popular</span>'}
+
+
 def pricing():
     cards = []
-    for pid in ("monthly", "yearly"):
-        p = const.PLANS[pid]
-        featured = pid == "yearly"
-        tag = '<span class="tag">2 months free</span>' if featured else ""
-        per = "/mo" if pid == "monthly" else "/yr"
+    for tier in const.PRICING_TIERS:
+        m = _plan_by(tier, "monthly")
+        y = _plan_by(tier, "yearly")
+        if not m:
+            continue
+        featured = tier == "family"
+        cap_gib = (m.get("relay_cap_bytes", 0)) // _GiB
+        bullets = list(_TIER_BULLETS.get(tier, []))
+        bullets.append(f"{cap_gib} GB/mo relay · {m.get('relay_max_height', 720)}p")
+        yr = f'<div class="muted small">or {money(y["price_cents"])}/yr — two months free</div>' if y else ""
         cards.append(f"""
-    <div class="card plan{' featured' if featured else ''}">{tag}
-      <h3>{_esc(p['name'])} · {_esc(p['cadence'].title())}</h3>
-      <div class="price">{money(p['price_cents'])}<span class="per">{per}</span></div>
-      <ul class="feat">
-        <li>Managed accounts &amp; sign-in</li>
-        <li>Hosted metadata (no TMDB key)</li>
-        <li>Remote access (P2P) when it ships</li>
-        <li>Priority support</li>
-      </ul>
-      <a class="btn primary block" href="/signup?plan={pid}">Get {_esc(p['cadence'])}</a>
+    <div class="card plan{' featured' if featured else ''}">{_TIER_TAG.get(tier, '')}
+      <h3>{_esc(m['name'])}</h3>
+      <div class="price">{money(m['price_cents'])}<span class="per">/mo</span></div>
+      {yr}
+      <ul class="feat">{''.join(f'<li>{b}</li>' for b in bullets)}</ul>
+      <a class="btn primary block" href="/signup?plan={_esc(m['id'])}">Get {_esc(m['name'])}</a>
     </div>""")
+
+    life = const.PLANS.get(const.PRICING_LIFETIME)
+    life_card = ""
+    if life:
+        life_card = f"""
+  <div class="card plan lifetime">
+    <h3>{_esc(life['name'])}</h3>
+    <div class="price">{money(life['price_cents'])}<span class="per"> once</span></div>
+    <div class="muted small">No subscription. Ever.</div>
+    <ul class="feat">
+      <li>Watch from anywhere (peer-to-peer)</li><li>1 home</li>
+      <li>Share-a-link, managed metadata &amp; backup</li>
+      <li>Modest relay ({life.get('relay_cap_bytes', 0) // _GiB} GB/mo · {life.get('relay_max_height', 720)}p)</li>
+    </ul>
+    <a class="btn block" href="/signup?plan={_esc(life['id'])}">Buy {_esc(life['name'])}</a>
+  </div>"""
+
     body = f"""
 <section><div class="wrap">
   <div style="text-align:center;margin-bottom:8px"><h1>Simple pricing</h1>
-  <p class="muted">Pay first, cancel anytime. The self-hosted player stays free forever.</p></div>
+  <p class="muted">Pay first, cancel anytime. The self-hosted player stays free forever — Cloud adds the remote connection.</p></div>
   <div class="plans">{''.join(cards)}</div>
+  <div class="plans" style="margin-top:14px">{life_card}</div>
   <p class="muted small" style="text-align:center;margin-top:24px">
+    Your video never flows through our servers — it streams peer-to-peer from your machine, so our cost (and your privacy exposure) stays tiny.
     Prefer to run it yourself? <a href="https://github.com/">Self-host Kadmu</a> is free and open source.
-    Want to support that work instead? <a href="/donate">Donate</a>.</p>
+    Want to support that instead? <a href="/donate">Donate</a>.</p>
 </div></section>
 """
     return layout("Pricing — Kadmu Cloud", body)
@@ -142,7 +184,7 @@ def signup(plan="monthly", error="", email=""):
     if plan not in const.PLANS:
         plan = const.DEFAULT_PLAN
     p = const.PLANS[plan]
-    per = "/mo" if plan == "monthly" else "/yr"
+    per = _per(p)
     err = f'<div class="notice err">{_esc(error)}</div>' if error else ""
     body = f"""
 <section><div class="wrap narrow">

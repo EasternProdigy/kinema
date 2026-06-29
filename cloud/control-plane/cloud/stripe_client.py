@@ -83,7 +83,8 @@ def create_subscription_checkout(plan, account_email, customer_id, success_url, 
     if const.MOCK:
         sid = "cs_mock_" + secrets.token_hex(12)
         # Mock "Checkout": go straight to success, which replays a synthetic webhook.
-        url = f"{success_url}{'&' if '?' in success_url else '?'}session_id={sid}&mock=1"
+        # Carry the chosen plan so the simulator provisions the right tier.
+        url = f"{success_url}{'&' if '?' in success_url else '?'}session_id={sid}&plan={plan['id']}&mock=1"
         return url, sid
     line_item = {"price": plan.get("stripe_price"), "quantity": 1}
     if not line_item["price"]:
@@ -96,6 +97,34 @@ def create_subscription_checkout(plan, account_email, customer_id, success_url, 
         "cancel_url": cancel_url,
         "client_reference_id": plan["id"],
         "subscription_data": {"metadata": {"plan": plan["id"]}},
+    }
+    if customer_id:
+        params["customer"] = customer_id
+    elif account_email:
+        params["customer_email"] = account_email
+    sess = _request("POST", "/checkout/sessions", params)
+    return sess.get("url"), sess.get("id")
+
+
+def create_onetime_checkout(plan, account_email, customer_id, success_url, cancel_url):
+    """Start a one-time (mode=payment) Checkout for a lifetime plan. The plan id rides
+    in metadata so the webhook can tell it apart from a donation. Returns (url, sid)."""
+    if const.MOCK:
+        sid = "cs_mock_life_" + secrets.token_hex(12)
+        url = f"{success_url}{'&' if '?' in success_url else '?'}session_id={sid}&plan={plan['id']}&mock=1"
+        return url, sid
+    price = plan.get("stripe_price")
+    if not price:
+        raise StripeError(f"No Stripe price configured for the {plan['id']} plan "
+                          f"(set STRIPE_PRICE_{plan['id'].upper()}).")
+    params = {
+        "mode": "payment",
+        "line_items": [{"price": price, "quantity": 1}],
+        "success_url": success_url + ("&" if "?" in success_url else "?") + "session_id={CHECKOUT_SESSION_ID}",
+        "cancel_url": cancel_url,
+        "client_reference_id": plan["id"],
+        "metadata": {"plan": plan["id"]},
+        "payment_intent_data": {"metadata": {"plan": plan["id"]}},
     }
     if customer_id:
         params["customer"] = customer_id

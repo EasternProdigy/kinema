@@ -23,6 +23,7 @@ async function openSettings() {
   if (srcSec) srcSec.classList.toggle("hidden", state.session.accounts && !state.session.canManage);
   if (typeof renderRemoteSources === "function" && state.session.canManage) await renderRemoteSources();
   if (typeof renderStorage === "function") await renderStorage();   // disk space, archiving savings, trash
+  if (typeof renderCloudBilling === "function") renderCloudBilling();   // Kadmu Cloud plan / upsell
   await renderTmdb();       // TMDB metadata + discovery (admins/owner only)
   renderAccount();          // your own account (accounts mode)
   await renderUsers();      // people management (admins, accounts mode)

@@ -194,10 +194,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._html(pages.signup(
                     plan_id, error="An account with that email already exists. "
                     "Use your existing password, or sign in.", email=email), 400)
+        plan = const.PLANS[plan_id]
+        customer = (acct or {}).get("stripe_customer") if acct else None
+        success, cancel = f"{const.BASE_URL}/checkout/success", f"{const.BASE_URL}/checkout/cancel"
         try:
-            url, _sid = stripe_client.create_subscription_checkout(
-                const.PLANS[plan_id], email, (acct or {}).get("stripe_customer") if acct else None,
-                f"{const.BASE_URL}/checkout/success", f"{const.BASE_URL}/checkout/cancel")
+            if plan.get("one_time"):                      # lifetime → one-time payment
+                url, _sid = stripe_client.create_onetime_checkout(plan, email, customer, success, cancel)
+            else:                                         # Plus/Family/Pro → subscription
+                url, _sid = stripe_client.create_subscription_checkout(plan, email, customer, success, cancel)
         except stripe_client.StripeError as e:
             return self._html(pages.signup(plan_id, error=f"Payment setup failed: {e}", email=email), 502)
         return self._redirect(url)
@@ -284,7 +288,7 @@ class Handler(BaseHTTPRequestHandler):
             # Reconstruct enough of a Stripe session for the webhook processor. The
             # email/plan are carried in the success URL only in mock mode (we can't
             # ask the real Stripe), so re-derive from the most recent pending intent.
-            obj = self._mock_session_for(sid)
+            obj = self._mock_session_for(sid, qs.get("plan", [""])[0])
             if obj:
                 webhooks.process_event(stripe_client.synth_event("checkout.session.completed", obj))
         return self._html(pages.checkout_success())
@@ -302,10 +306,10 @@ class Handler(BaseHTTPRequestHandler):
             webhooks.process_event(stripe_client.synth_event("checkout.session.completed", obj))
         return self._html(pages.donate_thanks(amount))
 
-    def _mock_session_for(self, sid):
-        """In mock mode the success URL is hit by the browser with just a session id.
-        We pair it with the account that most recently started signup (the one without
-        a subscription yet) so the demo flow provisions correctly."""
+    def _mock_session_for(self, sid, plan=""):
+        """In mock mode the success URL is hit by the browser with a session id + the
+        chosen plan. We pair it with the account that most recently started signup (the
+        one without a subscription yet) so the demo flow provisions the right tier."""
         row = db().execute(
             "SELECT a.email, a.stripe_customer FROM accounts a "
             "LEFT JOIN subscriptions s ON s.account_id=a.id "
@@ -318,9 +322,15 @@ class Handler(BaseHTTPRequestHandler):
             email, customer = acct["email"], acct.get("stripeCustomer")
         else:
             email, customer = row["email"], row["stripe_customer"]
-        return {"id": sid, "mode": "subscription", "customer": customer,
-                "customer_email": email, "client_reference_id": const.DEFAULT_PLAN,
-                "subscription": "sub_mock_" + sid.split("_")[-1]}
+        plan = plan if plan in const.PLANS else const.DEFAULT_PLAN
+        obj = {"id": sid, "customer": customer, "customer_email": email,
+               "client_reference_id": plan, "metadata": {"plan": plan}}
+        if const.PLANS[plan].get("one_time"):
+            obj["mode"] = "payment"                        # lifetime → one-time purchase
+        else:
+            obj["mode"] = "subscription"
+            obj["subscription"] = "sub_mock_" + sid.split("_")[-1]
+        return obj
 
     # -- webhook (real Stripe events) --------------------------------------- #
     def _webhook(self):

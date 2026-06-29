@@ -366,6 +366,8 @@ const REMOTE_PROVIDERS = [
       "It appears as a drive/folder — e.g. <code>G:\\My Drive</code> (Windows) or <code>~/Library/CloudStorage/GoogleDrive-…</code> (macOS).",
       "Paste that folder (or a movies subfolder) below.",
     ],
+    // Referral-ready: a host can swap in an affiliate URL (Drive has no public program today).
+    link: "https://www.google.com/drive/download/", getLabel: "Get Drive for desktop",
     hint: "Tip: mark the media you want as “Available offline” so seeking stays smooth." },
   { id: "dropbox", name: "Dropbox",
     steps: [
@@ -373,12 +375,14 @@ const REMOTE_PROVIDERS = [
       "It creates a <code>Dropbox</code> folder (e.g. <code>~/Dropbox</code> or <code>C:\\Users\\you\\Dropbox</code>).",
       "Paste that folder (or a subfolder) below.",
     ],
+    link: "https://www.dropbox.com/install", getLabel: "Get Dropbox",
     hint: "Tip: use “Make available offline” on your media folder for smooth seeking." },
   { id: "mega", name: "MEGA",
     steps: [
       "Install <b>MEGAsync</b> and sync a folder, <i>or</i> run <code>rclone mount mega: ~/kadmu-media</code>.",
       "Paste the local synced/mounted folder below.",
     ],
+    link: "https://mega.io/desktop", getLabel: "Get MEGAsync",
     hint: "MEGA is end-to-end encrypted, so there’s no app-less native link — the mount/sync does the decrypting." },
   { id: "s3", name: "S3 / Backblaze / Wasabi",
     steps: [
@@ -386,6 +390,7 @@ const REMOTE_PROVIDERS = [
       "Mount it with a cache: <code>rclone mount remote:bucket ~/kadmu-media --vfs-cache-mode full</code>.",
       "Paste the mount folder (<code>~/kadmu-media</code>) below.",
     ],
+    link: "https://www.backblaze.com/cloud-storage", getLabel: "Get Backblaze B2",
     hint: "The VFS cache is what makes seeking and transcoding feel local." },
   { id: "server", name: "Your own server",
     steps: [
@@ -442,9 +447,13 @@ function openRemoteStorageDialog() {
   const provWrap = $("#remoteProviders");
   function drawSteps() {
     const pr = REMOTE_PROVIDERS.find(x => x.id === provider) || REMOTE_PROVIDERS[0];
+    // Optional "Get <provider>" link (referral-ready) — only when the upsell surface is on.
+    const showLinks = !!(state.session && state.session.upsell);
+    const get = (showLinks && pr.link)
+      ? `<a class="remote-get" href="${escapeHtml(pr.link)}" target="_blank" rel="noopener">${escapeHtml(pr.getLabel || "Get it")} →</a>` : "";
     $("#remoteSteps").innerHTML =
       `<ol>${pr.steps.map(s => `<li>${s}</li>`).join("")}</ol>` +
-      `<p class="muted small remote-hint">${pr.hint}</p>`;
+      `<p class="muted small remote-hint">${pr.hint}</p>` + get;
   }
   REMOTE_PROVIDERS.forEach(pr => {
     const chip = el("button", "remote-prov" + (pr.id === provider ? " on" : ""), escapeHtml(pr.name));

@@ -17,6 +17,20 @@ APP_NAME = "Kadmu"
 APP_VERSION = "1.0.0"
 
 # --------------------------------------------------------------------------- #
+# Monetization surface (all opt-in, all just links — no outbound calls). These let
+# every install (even pure self-host) point at Kadmu Cloud + the donate page, and
+# let a host drop in an affiliate tag for the "where to watch" links. Overridable
+# by env so a fork / white-label can re-point or blank them.
+# --------------------------------------------------------------------------- #
+CLOUD_SITE = os.environ.get("KADMU_CLOUD_SITE", "https://kadmu.app").rstrip("/")
+DONATE_URL = os.environ.get("KADMU_DONATE_URL", CLOUD_SITE + "/donate")
+# "Where to watch" affiliate base. {q} is replaced with the URL-encoded title; if it
+# carries no {q} the title is appended. Empty → a plain JustWatch search (no tag).
+AFFILIATE_WATCH = os.environ.get("KADMU_AFFILIATE_WATCH", "")
+# Show the upsell/affiliate surface at all (a host can hide every paid touchpoint).
+SHOW_UPSELL = os.environ.get("KADMU_SHOW_UPSELL", "1") not in ("0", "false", "no", "")
+
+# --------------------------------------------------------------------------- #
 # Paths & constants
 # --------------------------------------------------------------------------- #
 # This file is src/kadmu/const.py, so APP_DIR (the `src/` dir) is two levels up —

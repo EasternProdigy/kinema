@@ -434,6 +434,11 @@ function titleCard(it) {
   card.dataset.id = it.id;
   card.dataset.path = it.id;                 // lets toggleMyList sync this card too
   const isShow = it.kind === "show";
+  // Hover-preview source: a representative native-playable clip (movie file, or a show's
+  // first episode). `direct` gates it to files that stream straight off disk, so brushing
+  // a tile never spins up an ffmpeg remux. preview.js reads these.
+  const previewPath = isShow ? it.preview : it.path;
+  if (previewPath && it.direct) { card.dataset.preview = previewPath; card.dataset.direct = "1"; }
   // Prefer the real TMDB portrait poster (so owned titles look like a streaming
   // service); fall back to the folder cover / a video frame when there's no match.
   const localPoster = isShow
@@ -507,6 +512,11 @@ function openDiscover(it) {
     ? `<img class="discover-poster" alt="" src="${escapeHtml(it.poster)}" />` : "";
   const meta = [it.year ? String(it.year) : "", it.vote ? `★ ${it.vote} on TMDB` : "",
                 it.kind === "show" ? "Series" : "Movie"].filter(Boolean).join("  ·  ");
+  // "Where to watch" — a link to find it legitimately (plain JustWatch search, or a
+  // host's affiliate base). Only when the upsell surface is enabled.
+  const watchUrl = (typeof whereToWatchUrl === "function") ? whereToWatchUrl(it.name) : "";
+  const watch = watchUrl
+    ? `<a class="discover-watch" href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener">${ICON.search} Find where to watch →</a>` : "";
   openDialog(it.name, `
     <div class="discover-dlg">
       ${poster}
@@ -515,6 +525,7 @@ function openDiscover(it) {
         ${it.why ? `<div class="discover-why">${escapeHtml(it.why)}</div>` : ""}
         ${it.overview ? `<p class="discover-overview">${escapeHtml(it.overview)}</p>` : ""}
         <p class="muted small">Not in your library yet. Find it through your usual channels, add the file to a Kadmu folder, and it'll play here.</p>
+        ${watch}
         ${tmdbAttribution()}
       </div>
     </div>`, () => {
@@ -616,7 +627,8 @@ function renderTitleDetail(d) {
        <div class="title-hero-scrim"></div>
        <div class="title-hero-content">
          <div class="title-eyebrow">${isShow ? "Series" : "Movie"}</div>
-         <h1 class="title-hero-name">${escapeHtml(d.name)}</h1>
+         ${d.logo ? `<img class="title-hero-logo" alt="${escapeHtml(d.name)}" src="${escapeHtml(d.logo)}" />` : ""}
+         <h1 class="title-hero-name${d.logo ? " hidden" : ""}">${escapeHtml(d.name)}</h1>
          <div class="title-hero-sub">${escapeHtml(sub)}</div>
          ${chips.length ? `<div class="title-chips">${chips.join("")}</div>` : ""}
          ${overview}
@@ -655,6 +667,9 @@ function renderTitleDetail(d) {
     bg.onerror = () => { bi++; if (bi < bgSources.length) bg.src = bgSources[bi]; else heroBox && heroBox.classList.add("noimg"); };
     if (bgSources.length) bg.src = bgSources[0]; else heroBox && heroBox.classList.add("noimg");
   }
+  // Title logo → fall back to the plain text name if the logo image fails.
+  const tLogo = $(".title-hero-logo", view);
+  if (tLogo) tLogo.onerror = () => { tLogo.classList.add("hidden"); tLogo.nextElementSibling?.classList.remove("hidden"); };
   applyIcons(view);
 
   // Resume / Play button — its target is computed server-side (the episode you're

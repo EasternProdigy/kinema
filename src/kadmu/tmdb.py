@@ -31,7 +31,7 @@ API_BASE = "https://api.themoviedb.org/3"
 IMAGE_BASE = "https://image.tmdb.org/t/p/"
 IMAGE_DIR = STATE_DIR / "cache" / "tmdb"          # disk cache for proxied posters
 POSTER_SIZES = {"w92", "w154", "w185", "w342", "w500", "w780", "original"}
-_PATH_RE = re.compile(r"^/[\w./-]+\.(?:jpg|jpeg|png|webp)$", re.IGNORECASE)
+_PATH_RE = re.compile(r"^/[\w./-]+\.(?:jpg|jpeg|png|webp|svg)$", re.IGNORECASE)
 _USER_AGENT = "Kadmu/1.0 (+https://kadmu.app)"
 _TIMEOUT = 15
 
@@ -154,10 +154,12 @@ def details(kind: str, tmdb_id: int):
     """Full detail for a movie/tv id, with keywords, credits, recommendations,
     similar, and the content rating (release_dates / content_ratings, for parental
     controls) folded in (one round-trip). Returns the raw TMDB dict, or None."""
-    append = "keywords,credits,recommendations,similar,videos,"
+    append = "keywords,credits,recommendations,similar,videos,images,"
     append += "release_dates" if kind == "movie" else "content_ratings"
     return _get(f"/{kind}/{int(tmdb_id)}",
-                {"append_to_response": append, "language": "en-US"})
+                {"append_to_response": append, "language": "en-US",
+                 # English + language-neutral title logos (the styled wordmark the UI shows)
+                 "include_image_language": "en,null"})
 
 
 def season(tv_id: int, season_number: int):
@@ -256,7 +258,8 @@ def fetch_image(poster_path: str, size: str = "w342"):
     if size not in POSTER_SIZES or not poster_path or not _PATH_RE.match(poster_path):
         return None
     ext = Path(poster_path).suffix.lower() or ".jpg"
-    ctype = {".png": "image/png", ".webp": "image/webp"}.get(ext, "image/jpeg")
+    ctype = {".png": "image/png", ".webp": "image/webp",
+             ".svg": "image/svg+xml"}.get(ext, "image/jpeg")
     cache = IMAGE_DIR / size / (poster_path.lstrip("/").replace("/", "_"))
     try:
         if cache.is_file() and cache.stat().st_size > 0:

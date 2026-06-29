@@ -172,11 +172,17 @@ def build_catalog():
                     watched += 1
         epcount = len(g["episodes"])
         archived = sum(1 for ep in g["episodes"] if ep in akeys)
+        # A representative clip for hover-preview: the first episode, flagged `direct`
+        # only when it's a natively browser-playable container (so a preview never spins
+        # up an ffmpeg remux just because you brushed a tile).
+        first_ep = g["episodes"][0] if g["episodes"] else None
         shows.append({
             "id": sid, "kind": "show", "name": g["name"],
             "seasonCount": len(g["seasons"]), "episodeCount": epcount,
             "watched": watched, "mtime": g["mtime"], "lastWatched": last,
             "rating": rate(sid), "archived": archived,
+            "preview": first_ep,
+            "direct": bool(first_ep) and Path(first_ep).suffix.lower() in NATIVE_EXTS,
             "suggestArchive": can_archive and epcount > 0 and watched >= epcount and archived < epcount,
         })
     movies = []

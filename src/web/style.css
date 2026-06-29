@@ -1601,6 +1601,10 @@ body.view-list .folder-ic { border-radius: var(--radius); }
   color: var(--ember); margin-bottom: 8px; }
 .hero-title { margin: 0 0 8px; font-size: clamp(26px, 4vw, 42px); font-weight: 800; line-height: 1.05;
   letter-spacing: -.02em; text-shadow: 0 2px 16px rgba(0,0,0,.5); }
+/* TMDB title logo (the styled wordmark) — shown in place of the text title when available */
+.hero-logo { display: block; max-width: min(440px, 62%); max-height: 150px; width: auto; height: auto;
+  object-fit: contain; object-position: left bottom; margin: 0 0 12px;
+  filter: drop-shadow(0 3px 14px rgba(0,0,0,.55)); }
 .hero-sub { color: #d8d2cc; font-size: 14px; margin-bottom: 14px; }
 .hero-prog { height: 5px; width: 220px; max-width: 60%; border-radius: 999px; overflow: hidden;
   background: rgba(255,255,255,.25); margin-bottom: 16px; }
@@ -1715,8 +1719,22 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
 .title-card .kind-badge { display: none; }
 .title-card .kind-badge.discover-badge { display: block; }
 .title-card .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Autoplay hover-preview (preview.js): a muted clip that fades in over the poster */
+.tile-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  display: block; opacity: 0; transition: opacity .35s ease; z-index: 1; background: #000; }
+.title-card.previewing .tile-preview { opacity: 1; }
 .title-card .poster .ph { color: rgba(255,255,255,.22); }
 .title-card .poster .ph svg { width: 38px; height: 38px; }
+/* Skeleton shimmer: a moving sheen over the poster placeholder until its image loads,
+   so the catalog reads as "premium loading" instead of flashing empty boxes. */
+@keyframes kshimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.title-card .poster .ph, .thumb .ph {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background-image: linear-gradient(100deg, transparent 18%, rgba(255,255,255,.07) 44%,
+    rgba(255,255,255,.13) 50%, rgba(255,255,255,.07) 56%, transparent 82%);
+  background-size: 220% 100%; animation: kshimmer 1.5s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .title-card .poster .ph, .thumb .ph { animation: none; } }
 .title-card .kind-badge {
   position: absolute; left: 6px; top: 6px; z-index: 2;
   background: rgba(13,15,18,.78); color: #fff; font-size: 10px; font-weight: 700;
@@ -1881,6 +1899,9 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
   color: var(--ember); margin-bottom: 8px; }
 .title-hero-name { margin: 0 0 8px; font-size: clamp(26px, 4vw, 40px); font-weight: 800; line-height: 1.05;
   letter-spacing: -.02em; text-shadow: 0 2px 16px rgba(0,0,0,.5); }
+.title-hero-logo { display: block; max-width: min(420px, 70%); max-height: 140px; width: auto; height: auto;
+  object-fit: contain; object-position: left bottom; margin: 0 0 12px;
+  filter: drop-shadow(0 3px 14px rgba(0,0,0,.55)); }
 .title-hero-sub { color: #d8d2cc; font-size: 14px; margin-bottom: 14px; }
 .title-hero-overview {
   color: #e3ddd6; font-size: 14.5px; line-height: 1.55; margin: 0 0 14px; max-width: 560px;
@@ -2141,3 +2162,36 @@ body.tv-mode .btn { padding-top: 11px; padding-bottom: 11px; }
 
 /* People list: the account timestamps the backend already tracks. */
 .user-id .user-seen { display: block; margin-top: 1px; }
+
+/* ===================== Kadmu Cloud section (billing.js) ===================== */
+.cloud-card {
+  border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px;
+  background: var(--surface-2);
+}
+.cloud-card.upsell {
+  background-image: radial-gradient(130% 120% at 100% 0%, rgba(245,131,47,.10), transparent 60%);
+  border-color: rgba(238,103,34,.35);
+}
+.cloud-card.on { border-color: rgba(47,169,105,.45); }
+.cloud-card-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.cloud-plan { font-size: 16px; font-weight: 700; color: var(--ink-900); }
+.cloud-status { margin-top: 2px; }
+.cloud-card-head .btn { white-space: nowrap; }
+.cloud-feat { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.cloud-feat li { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; color: var(--ink-700); line-height: 1.4; }
+.cloud-feat li svg { width: 16px; height: 16px; flex: none; color: var(--orange); margin-top: 1px; }
+.cloud-card.on .cloud-feat li svg { color: var(--success); }
+.cloud-foot { margin: 14px 0 0; line-height: 1.5; }
+.cloud-foot a, .discover-watch { color: var(--orange); font-weight: 600; }
+
+/* "Where to watch" link in the discover info sheet. */
+.discover-watch {
+  display: inline-flex; align-items: center; gap: 7px; margin: 4px 0 2px;
+  text-decoration: none; font-size: 13.5px;
+}
+.discover-watch:hover { text-decoration: underline; }
+.discover-watch svg { width: 15px; height: 15px; }
+
+/* "Get <provider>" referral link in the remote-storage dialog. */
+.remote-get { display: inline-block; margin-top: 6px; color: var(--orange); font-weight: 600; font-size: 13px; text-decoration: none; }
+.remote-get:hover { text-decoration: underline; }
