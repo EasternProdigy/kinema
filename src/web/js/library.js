@@ -27,37 +27,59 @@ async function loadLibrary(path, opts = {}) {
   { const si = $("#searchInput"); if (si) si.value = ""; $("#searchBox")?.classList.remove("has-text"); closeSearchDD(); }   // leaving search → clear the box & dropdown
   clearSelection();
   $("#titleView")?.classList.add("hidden");
+  $("#searchExtSection")?.classList.add("hidden");   // external search results belong to search only
   renderBreadcrumb(data);
   renderFolders(data);
   renderVideos(data);
   if (data.isRoot) {
+    state.homeFilter = "all";                       // every fresh root load starts on the Home tab
+    $$("#homeNav .home-tab").forEach(b => b.classList.toggle("active", b.dataset.home === "all"));
     await renderContinue(); await renderMyList();
+    state.discoverShown = false;
     if (state.browseFiles) {
       // classic folder browser at the root (reached via the "Browse files" toggle)
+      $("#homeNav")?.classList.add("hidden");
       $("#homeHero")?.classList.add("hidden");
       $("#recentSection")?.classList.add("hidden");
+      $("#topSection")?.classList.add("hidden");
+      $("#genreSection")?.classList.add("hidden");
+      $("#historySection")?.classList.add("hidden");
+      $("#catalogBar")?.classList.add("hidden");
       $("#showsSection")?.classList.add("hidden");
       $("#moviesSection")?.classList.add("hidden");
+      $("#discoverSection")?.classList.add("hidden");
       renderHomeBar(true);
     } else {
       await renderHome();
       const hasCatalog = await renderCatalog();   // Shows + Movies poster grids
+      $("#homeNav")?.classList.toggle("hidden", !hasCatalog);   // Netflix-style tabs only with a catalog
       if (hasCatalog) {
         // the catalog supersedes the raw top-level folder/file lists
         $("#folderSection")?.classList.add("hidden");
         $("#videoSection")?.classList.add("hidden");
+        $("#discoverSection")?.classList.add("hidden");
         renderHomeBar(false);
       } else {
         $("#homeBar")?.classList.add("hidden");
+        // Nothing owned yet → a streaming-style discover home of titles to GET
+        // (when the metadata layer is on for an unrestricted viewer).
+        state.discoverShown = (typeof renderDiscover === "function") ? await renderDiscover() : false;
       }
     }
   } else {
+    state.discoverShown = false;
+    $("#homeNav")?.classList.add("hidden");
     $("#homeHero")?.classList.add("hidden");
     $("#recentSection")?.classList.add("hidden");
+    $("#topSection")?.classList.add("hidden");
+    $("#genreSection")?.classList.add("hidden");
+    $("#historySection")?.classList.add("hidden");
     $("#continueSection").classList.add("hidden");
     $("#mylistSection")?.classList.add("hidden");
+    $("#catalogBar")?.classList.add("hidden");
     $("#showsSection")?.classList.add("hidden");
     $("#moviesSection")?.classList.add("hidden");
+    $("#discoverSection")?.classList.add("hidden");
     $("#homeBar")?.classList.add("hidden");
   }
   renderEmpty(data);
@@ -74,7 +96,10 @@ async function loadLibrary(path, opts = {}) {
    runSearch(), which renders the classic full-page results into the library grid. */
 const SEARCH_DD_FOLDERS = 6;   // shows/folders shown in the dropdown before "See all"
 const SEARCH_DD_VIDEOS = 8;    // episodes/movies shown in the dropdown before "See all"
+const SEARCH_DD_EXTERNAL = 4;  // "not in your library" (TMDB) results shown in the dropdown
 let searchTimer = null;
+let extTimer = null;           // separate debounce for the (network) external TMDB search
+let lastLocalData = null;      // last local results, so external can re-render the dropdown
 let searchSeq = 0;             // request counter; a stale (out-of-order) response is dropped
 const sdd = { open: false, items: [], active: -1, q: "" };   // dropdown state
 
@@ -114,16 +139,33 @@ async function suggest(q) {
   catch { return; }                                  // a network blip leaves the dropdown as-is
   if (seq !== searchSeq) return;                     // a newer keystroke superseded this one
   if (($("#searchInput")?.value || "").trim() !== q) return;   // input changed/cleared meanwhile
-  renderSearchDD(data, q);
+  lastLocalData = data;
+  renderSearchDD(data, q, null);                     // local results first (instant)
+  // Then search TMDB for titles you don't own — debounced (it's a network call) and
+  // appended to the dropdown when it returns.
+  clearTimeout(extTimer);
+  extTimer = setTimeout(() => suggestExternal(q, seq), 260);
 }
 
-function renderSearchDD(data, q) {
+async function suggestExternal(q, seq) {
+  let items;
+  try { items = (await api(`/api/search/external?q=${enc(q)}`)).items || []; }
+  catch { return; }                                  // offline / TMDB off → just skip
+  if (seq !== searchSeq) return;                     // superseded by a newer keystroke
+  if (($("#searchInput")?.value || "").trim() !== q) return;
+  if (!sdd.open || !items.length) return;            // dropdown closed or nothing to add
+  renderSearchDD(lastLocalData || { folders: [], videos: [] }, q, items);
+}
+
+function renderSearchDD(data, q, external) {
   const dd = $("#searchDropdown");
   if (!dd) return;
   const terms = searchTerms(q);
   const folders = data.folders || [];
   const videos = data.videos || [];
-  const total = folders.length + videos.length;
+  const ext = external || [];
+  const localTotal = folders.length + videos.length;
+  const total = localTotal + ext.length;
 
   dd.innerHTML = "";
   sdd.items = [];
@@ -194,6 +236,27 @@ function renderSearchDD(data, q) {
     }
   }
 
+  if (ext.length) {
+    dd.appendChild(el("div", "sdd-head", "Not in your library"));
+    for (const it of ext.slice(0, SEARCH_DD_EXTERNAL)) {
+      const bits = [it.year ? String(it.year) : "", it.vote ? `★ ${it.vote}` : "",
+                    it.kind === "show" ? "Series" : "Movie"].filter(Boolean).join("  ·  ");
+      const node = el("div", "",
+        `<span class="sdd-thumb sdd-poster"><span class="sdd-ph">${ICON.film}</span><img alt="" loading="lazy" style="opacity:0;transition:opacity .2s" /></span>
+         <span class="sdd-text">
+           <span class="sdd-name">${highlightTerms(it.name, terms)}</span>
+           <span class="sdd-sub">${escapeHtml(bits)}</span>
+         </span>
+         <span class="sdd-tag get" title="Not in your library">${ICON.plus}</span>`);
+      const img = $("img", node);
+      if (img && it.poster) {
+        img.src = it.poster;
+        img.onload = () => { img.style.opacity = 1; $(".sdd-ph", node)?.remove(); };
+      }
+      register(node, { kind: "external", item: it });
+    }
+  }
+
   // footer: jump to the classic full-page results
   const foot = el("button", "sdd-all",
     `<span class="sdd-all-ic">${ICON.search}</span><span>See all ${total} result${total > 1 ? "s" : ""} for “${escapeHtml(q)}”</span>`);
@@ -241,6 +304,8 @@ function activateItem(idx) {
     closeSearchDD(); input?.blur();
     if (!it.item.playable) toast("This file type may not play in the browser. Try converting to MP4/WebM.", "err");
     openPlayer(it.item);
+  } else if (it.kind === "external") {                // a TMDB title you don't own → info card
+    closeSearchDD(); input?.blur(); openDiscover(it.item);
   } else { closeSearchDD(); runSearch(sdd.q); }      // "See all results"
 }
 
@@ -277,10 +342,30 @@ async function runSearch(q) {
   const empty = $("#emptyState"); empty.innerHTML = "";
   if (!data.folders.length && !data.videos.length) {
     empty.classList.remove("hidden");
-    empty.appendChild(el("h2", null, "No results"));
-    empty.appendChild(el("p", "muted", `Nothing in your library matches “${q}”.`));
+    empty.appendChild(el("h2", null, "Nothing in your library"));
+    empty.appendChild(el("p", "muted", `Nothing you own matches “${q}”. Checking for titles to add…`));
   } else empty.classList.add("hidden");
+  renderSearchExternal(q);                            // TMDB titles you don't own (async)
   window.scrollTo(0, 0);
+}
+
+// The "Not in your library" grid on the full search page — TMDB titles you don't own.
+async function renderSearchExternal(q) {
+  const sec = $("#searchExtSection"), grid = $("#searchExtGrid");
+  if (!sec || !grid) return;
+  sec.classList.add("hidden"); grid.innerHTML = "";
+  let items = [];
+  try { items = (await api(`/api/search/external?q=${enc(q)}`)).items || []; } catch { return; }
+  if (!state.searchActive) return;                                   // navigated away meanwhile
+  if (($("#searchInput")?.value || "").trim() !== q) return;         // query changed
+  if (!items.length) return;
+  for (const it of items) grid.appendChild(titleCard(it));           // external → externalCard
+  sec.classList.remove("hidden");
+  const empty = $("#emptyState");
+  if (empty && !empty.classList.contains("hidden")) {                // had no owned results
+    const p = $("p", empty);
+    if (p) p.textContent = `Nothing you own matches “${q}”, but here's what we found.`;
+  }
 }
 function exitSearch() {
   state.searchActive = false;
@@ -404,14 +489,16 @@ function filterVideos(vids) {
   }
 }
 
-// "My List" row on the home view (pinned shows / movies).
+// "My List" row on the home view (pinned shows / movies). Shows on the Home and
+// My List tabs; hidden while browsing a specific kind (TV Shows / Movies).
 async function renderMyList() {
   const sec = $("#mylistSection"), grid = $("#mylistGrid");
   if (!sec) return;
   let items = [];
   try { items = await api("/api/mylist"); } catch {}
   state.mylist = new Set(items.map(i => i.path));
-  if (!items.length) { sec.classList.add("hidden"); return; }
+  const allowed = state.homeFilter === "all" || state.homeFilter === "mylist";
+  if (!allowed || !items.length) { sec.classList.add("hidden"); return; }
   sec.classList.remove("hidden");
   grid.innerHTML = "";
   for (const it of items) {
@@ -485,6 +572,8 @@ function videoCard(v, opts = {}) {
 
 async function renderContinue() {
   const sec = $("#continueSection"), grid = $("#continueGrid");
+  if (!sec) return;
+  if (state.homeFilter !== "all") { sec.classList.add("hidden"); return; }   // Home tab only
   let items = [];
   try { items = await api("/api/continue"); } catch {}
   if (!items.length) { sec.classList.add("hidden"); return; }
@@ -541,6 +630,9 @@ function renderEmpty(data) {
     return;
   }
   const nothing = !(data.folders || []).length && !(data.videos || []).length;
+  // The discover home (titles to get) stands in for the bare empty state — and
+  // carries its own "Add your folders" call to action.
+  if (data.isRoot && state.discoverShown) { empty.classList.add("hidden"); return; }
   if (data.isRoot && !(data.folders || []).length) {
     empty.classList.remove("hidden");
     empty.appendChild(el("h2", null, "No library folders yet"));
@@ -560,4 +652,26 @@ function renderEmpty(data) {
     empty.classList.add("hidden");
   }
 }
+
+/* ===================== Netflix-style home: tab nav + rail scroll arrows ===================== */
+(function wireHomeNav() {
+  const nav = $("#homeNav");
+  if (nav) {
+    nav.addEventListener("click", (e) => {
+      const tab = e.target.closest(".home-tab");
+      if (!tab || tab.classList.contains("active")) return;
+      if (typeof applyHomeFilter === "function") applyHomeFilter(tab.dataset.home);
+    });
+  }
+  // Delegated scroll arrows for every rail (static + JS-built). A click nudges the
+  // adjacent rail ~90% of its width; smooth-scrolls so it feels like Netflix.
+  $("#library")?.addEventListener("click", (e) => {
+    const arrow = e.target.closest(".rail-arrow");
+    if (!arrow) return;
+    const rail = arrow.closest(".rail-wrap")?.querySelector(".row-rail");
+    if (!rail) return;
+    const dx = Math.max(240, rail.clientWidth * 0.9);
+    rail.scrollBy({ left: arrow.classList.contains("left") ? -dx : dx, behavior: "smooth" });
+  });
+})();
 

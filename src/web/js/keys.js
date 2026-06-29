@@ -116,8 +116,13 @@ function onKey(e) {
     if (e.key === "Escape") { closeDialog(); closeSettings(); }
     return;
   }
+  // "V" toggles 10-foot TV mode from anywhere (big UI + arrow-key navigation).
+  if ((e.key === "v" || e.key === "V") && typeof toggleTvMode === "function") {
+    e.preventDefault(); toggleTvMode(); return;
+  }
   const playerOpen = !$("#playerOverlay").classList.contains("hidden");
   if (e.key === "Escape") {
+    if (!$("#trailerModal")?.classList.contains("hidden")) return closeTrailer();
     if (!$("#paletteOverlay")?.classList.contains("hidden")) return closePalette();
     if (!$("#shortcutsModal").classList.contains("hidden")) return closeShortcuts();
     if (!$("#ctxMenu").classList.contains("hidden")) return closeContextMenu();

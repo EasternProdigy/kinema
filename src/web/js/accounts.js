@@ -87,16 +87,51 @@ async function showProfileChooser() {
   try { const d = await api("/api/profiles"); list = d.profiles || list; state.profileList = list; } catch {}
   grid.innerHTML = "";
   for (const p of list) {
-    const b = el("button", "profile-tile" + (p.id === currentProfile() ? " current" : ""));
+    const b = el("button", "profile-tile" + (p.id === currentProfile() ? " current" : "") + (p.kid ? " kid" : ""));
     b.innerHTML = `<span class="profile-ava big">${escapeHtml((p.name || "?").charAt(0).toUpperCase())}</span>` +
-                  `<span class="profile-name">${escapeHtml(p.name || p.id)}</span>`;
-    b.onclick = () => selectProfile(p);
+                  `<span class="profile-name">${escapeHtml(p.name || p.id)}</span>` +
+                  (p.kid ? `<span class="profile-tag">Kids</span>` : "") +
+                  (p.pin ? `<span class="profile-lock" data-icon="lock" title="PIN protected"></span>` : "");
+    b.onclick = () => (p.pin ? promptProfilePin(p) : selectProfile(p));
     grid.appendChild(b);
   }
   applyIcons(ov);
   ov.classList.remove("hidden");
 }
 function hideProfileChooser() { $("#profileOverlay")?.classList.add("hidden"); }
+
+// A PIN-protected profile asks for its PIN before entry (a soft family lock — real,
+// server-enforced restriction is accounts mode; here the maturity filter still applies
+// to whichever profile is active).
+function promptProfilePin(p) {
+  const grid = $("#profileGrid");
+  if (!grid) return;
+  grid.innerHTML =
+    `<form class="pin-form" id="pinForm">
+       <span class="profile-ava big">${escapeHtml((p.name || "?").charAt(0).toUpperCase())}</span>
+       <div class="pin-title">Enter ${escapeHtml(p.name || p.id)}'s PIN</div>
+       <input type="password" id="pinInput" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="PIN" />
+       <div class="pin-error" id="pinError"></div>
+       <div class="pin-actions">
+         <button class="btn ghost" type="button" id="pinCancel">Back</button>
+         <button class="btn primary" type="submit">Unlock</button>
+       </div>
+     </form>`;
+  $("#pinCancel").onclick = () => showProfileChooser();
+  $("#pinForm").onsubmit = async (e) => {
+    e.preventDefault();
+    let ok = false;
+    try {
+      ok = (await api("/api/profiles", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", id: p.id, pin: $("#pinInput").value }),
+      })).ok;
+    } catch {}
+    if (ok) selectProfile(p);
+    else { $("#pinError").textContent = "Wrong PIN — try again."; $("#pinInput").value = ""; $("#pinInput").focus(); }
+  };
+  setTimeout(() => $("#pinInput")?.focus(), 50);
+}
 async function selectProfile(p) {
   try { localStorage.setItem("kadmu_profile", p.id); localStorage.setItem("kadmu_profile_chosen", "1"); } catch {}
   updateProfileButton(p);
@@ -169,7 +204,13 @@ function toggleUserMenu() {
 function hideUserMenu() { $("#userMenu")?.classList.add("hidden"); }
 async function signOut() {
   try { await fetch("/api/logout", { method: "POST", headers: { "X-Kadmu": "1" } }); } catch {}
-  try { localStorage.removeItem("kadmu_last_path"); } catch {}
+  try {
+    localStorage.removeItem("kadmu_last_path");
+    // drop the chosen sub-profile so the next login (possibly a different account) starts
+    // fresh on the "Who's watching?" chooser instead of carrying a stale profile.
+    localStorage.removeItem("kadmu_profile");
+    localStorage.removeItem("kadmu_profile_chosen");
+  } catch {}
   location.reload();
 }
 
@@ -212,6 +253,15 @@ async function saveAccount(payload) {
 }
 
 /* ---------- settings: people / users (admin) ---------- */
+// A small "last seen / added" line for a user row (surfaces the account timestamps
+// the backend already tracks). relTime() lives in catalog.js (loaded earlier).
+function userSeen(u) {
+  const rel = (typeof relTime === "function") ? relTime : (t) => new Date(t * 1000).toLocaleDateString();
+  if (u.lastSeen) return "active " + rel(u.lastSeen);
+  if (u.created) return "added " + rel(u.created);
+  return "";
+}
+
 async function renderUsers() {
   const sec = $("#usersSection");
   if (!sec) return;
@@ -239,7 +289,8 @@ async function renderUsers() {
     row.innerHTML =
       `<span class="user-ava">${escapeHtml((u.name || u.username || "?").charAt(0).toUpperCase())}</span>` +
       `<span class="user-id"><b>${escapeHtml(u.name || u.username)}</b>` +
-      `<span class="muted small">@${escapeHtml(u.username)}${isMe ? " · you" : ""}</span></span>`;
+      `<span class="muted small">@${escapeHtml(u.username)}${isMe ? " · you" : ""}</span>` +
+      `<span class="muted small user-seen">${escapeHtml(userSeen(u))}</span></span>`;
     const actions = el("div", "user-actions");
     const sel = el("select", "user-role");
     sel.innerHTML = `<option value="viewer"${u.role === "viewer" ? " selected" : ""}>Viewer</option>` +

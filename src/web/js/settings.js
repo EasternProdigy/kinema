@@ -8,6 +8,8 @@ async function openSettings() {
   $("#settingsModal").classList.remove("hidden");
   renderKeybinds($("#settingsKbd"));   // same list as the "?" overlay (one source of truth)
   { const t = $("#keyHudToggle"); if (t) t.checked = state.keyHud; }
+  { const t = $("#tvModeToggle"); if (t) t.checked = !!state.tvMode; }
+  if (typeof renderCast === "function") renderCast();   // Chromecast status (opt-in)
   await refreshSession();   // re-check live server caps (LAN toggle, ffmpeg, …) without a page reload
   renderStatus();
   renderLan();
@@ -20,11 +22,92 @@ async function openSettings() {
   const srcSec = $("#sourcesSection");
   if (srcSec) srcSec.classList.toggle("hidden", state.session.accounts && !state.session.canManage);
   if (typeof renderRemoteSources === "function" && state.session.canManage) await renderRemoteSources();
+  if (typeof renderStorage === "function") await renderStorage();   // disk space, archiving savings, trash
   await renderTmdb();       // TMDB metadata + discovery (admins/owner only)
   renderAccount();          // your own account (accounts mode)
   await renderUsers();      // people management (admins, accounts mode)
+  if (typeof renderParental === "function") await renderParental();   // parental controls
 }
 function closeSettings() { $("#settingsModal").classList.add("hidden"); }
+
+/* ===================== storage (disk space · archiving · trash · sources) ===================== */
+// Surfaces the storage subsystem in one place: free space per drive, how much
+// archiving has reclaimed (+ any live encode job), the recoverable trash (with a
+// one-click empty), the catalog size, and the remote-source count.
+async function renderStorage() {
+  const sec = $("#storageSection");
+  if (!sec) return;
+  let d = null;
+  try { d = await api("/api/storage"); } catch { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  const box = $("#storageControl");
+  if (!box) return;
+  const a = d.archive || {}, trash = d.trash || {}, cat = d.catalog || {};
+  const titles = (cat.shows || 0) + (cat.movies || 0);
+
+  const drives = (d.drives || []).map(dr => {
+    const usedPct = dr.total ? Math.min(100, Math.max(2, (dr.used / dr.total) * 100)) : 0;
+    const label = (dr.roots && dr.roots.length) ? dr.roots.join(", ") : dr.path;
+    return `<div class="stor-drive">
+        <div class="stor-drive-head"><span class="stor-drive-name">${escapeHtml(label)}</span>
+          <span class="muted small"><b>${fmtSize(dr.free) || "0 B"}</b> free of ${fmtSize(dr.total) || "0 B"}</span></div>
+        <div class="stor-bar" title="${fmtSize(dr.used)} used"><i style="width:${usedPct}%"></i></div>
+      </div>`;
+  }).join("") || `<p class="muted small">No library folders yet — add one to see disk usage.</p>`;
+
+  const tiles = [
+    ["archive", fmtSize(a.bytesSaved) || "0 B", "reclaimed by archiving"],
+    ["film", String(a.filesArchived || 0), `file${a.filesArchived === 1 ? "" : "s"} archived`],
+    ["film", String(titles), `title${titles === 1 ? "" : "s"} in your library`],
+    ["trash", `${trash.items || 0}`, `in trash · ${fmtSize(trash.bytes) || "0 B"}`],
+    ["globe", String(d.sources || 0), `remote source${d.sources === 1 ? "" : "s"}`],
+  ].map(([ic, num, lbl]) =>
+    `<div class="stor-tile"><span class="stor-ic" data-icon="${ic}"></span>
+       <div><div class="stor-num">${escapeHtml(num)}</div><div class="stor-lbl muted small">${escapeHtml(lbl)}</div></div></div>`
+  ).join("");
+
+  // Archive status / live job line.
+  let archLine = "";
+  if (!a.available) {
+    archLine = `<p class="muted small">Archiving needs ffmpeg with an efficient encoder (AV1/HEVC/H.264). It re-compresses titles you've finished, keeping them watchable, to reclaim disk.</p>`;
+  } else {
+    const job = a.active;
+    if (job && (job.state === "running" || job.state === "queued")) {
+      const pct = Math.round(job.percent || 0);
+      archLine = `<p class="stor-job"><span class="stor-spin"></span> ${escapeHtml(job.name || "Archiving")} — ${job.state === "queued" ? "queued" : `compressing ${(job.doneCount || 0) + 1} of ${job.total || "?"} · ${pct}%`}${a.queue ? ` <span class="muted small">(+${a.queue} queued)</span>` : ""}</p>`;
+    } else {
+      archLine = `<p class="muted small">Encoder: <b>${escapeHtml(a.encoder || a.codec || "ready")}</b>. Originals are kept in <code>${escapeHtml(a.keepOriginal === "delete" ? "deleted" : a.keepOriginal === "keep" ? "kept" : "trash (recoverable)")}</code>. Archive a finished title from its page (⋯ menu) to reclaim space.</p>`;
+    }
+  }
+
+  box.innerHTML = `<div class="stor-drives">${drives}</div>
+    <div class="stor-tiles">${tiles}</div>
+    ${archLine}
+    <div class="stor-actions"></div>`;
+
+  const actions = $(".stor-actions", box);
+  if ((trash.items || 0) > 0 && state.session.canManage) {
+    const empty = el("button", "btn ghost", `${ICON.trash}<span>Empty trash (${fmtSize(trash.bytes) || trash.items})</span>`);
+    empty.onclick = () => emptyTrash();
+    actions.appendChild(empty);
+  }
+  applyIcons(box);
+}
+
+// Permanently clear the per-root .kadmu-trash folders (after a confirm), then refresh.
+function emptyTrash() {
+  openDialog("Empty trash",
+    `<p>Permanently delete everything in the library's <code>.kadmu-trash</code> folders?</p>
+     <p class="muted small">This can't be undone. (Deleted items move to trash first and auto-purge on their own after a while.)</p>`,
+    async () => {
+      try {
+        const r = await api("/api/op", { method: "POST", body: JSON.stringify({ action: "empty-trash" }) });
+        toast(r && r.message ? r.message : "Trash emptied", "ok");
+      } catch (e) { toast(e.message, "err"); }
+      renderStorage();
+      return true;
+    });
+}
 
 function renderUrls() {
   const list = $("#urlList");
@@ -346,3 +429,134 @@ async function setNetworkPassword(pw) {
   } catch (e) { toast(e.message, "err"); }
 }
 
+
+/* ----- settings: parental controls (per-profile / per-user maturity ceiling) ----- */
+// Profiles mode: anyone managing can set each kid profile's limit + PIN (family trust
+// model). Accounts mode: admins set each user's limit. Levels come from /api/session.
+async function renderParental() {
+  const sec = $("#parentalSection"), box = $("#parentalControl");
+  if (!sec || !box) return;
+  const s = state.session;
+  // When profiles are on (household or pure-profiles) ANY viewer manages their own
+  // sub-profiles (the parent sets the kids' limits). In pure-accounts mode the section
+  // sets per-USER limits, which stays admin-only.
+  const show = !!(s.profiles || (s.accounts && s.canManage));
+  sec.classList.toggle("hidden", !show);
+  if (!show) { box.innerHTML = ""; return; }
+  const levels = s.maturityLevels || [];
+  const optsFor = (cur) => levels.map(l => {
+    const [lvl, label, covers] = l;
+    return `<option value="${lvl}"${Number(cur) === lvl ? " selected" : ""}>${escapeHtml(label)}${covers ? " — " + escapeHtml(covers) : ""}</option>`;
+  }).join("");
+
+  // the full library list, so a profile/user can be scoped to a subset of folders
+  let allRoots = [];
+  try { allRoots = (await api("/api/config")).roots || []; } catch {}
+
+  box.innerHTML = "";
+  if (!s.tmdb) {
+    box.appendChild(el("p", "muted small", "Turn on the TMDB metadata layer above to get content ratings — without it, a kids limit hides everything unrated. (Library scoping below works regardless.)"));
+  }
+
+  if (s.profiles) {
+    let data; try { data = await api("/api/profiles"); } catch { data = { profiles: [] }; }
+    const profs = (data.profiles || []).filter(p => p.id !== "default");
+    if (!profs.length) {
+      box.appendChild(el("p", "muted small", "Add a profile (avatar, top-right) — then set its maturity limit, libraries and an optional PIN here."));
+      return;
+    }
+    for (const p of profs) {
+      const row = el("div", "parental-row");
+      row.innerHTML =
+        `<span class="parental-name">${escapeHtml(p.name)}</span>
+         <select class="lib-select" data-pid="${escapeHtml(p.id)}" aria-label="Maturity for ${escapeHtml(p.name)}">${optsFor(p.maturity)}</select>
+         <input type="password" class="parental-pin" data-pid="${escapeHtml(p.id)}" autocomplete="new-password" inputmode="numeric" maxlength="12"
+                placeholder="${p.pin ? "PIN set — type to change" : "Set a PIN (optional)"}" />
+         ${p.pin ? `<button class="btn ghost mini parental-pin-clear" type="button" data-pid="${escapeHtml(p.id)}">Clear PIN</button>` : ""}
+         <button class="btn ghost mini parental-remove" type="button" data-pid="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" title="Remove this profile">${ICON.trash || "Remove"}</button>
+         ${libsControl(allRoots, p.roots, "pid", p.id)}`;
+      box.appendChild(row);
+    }
+    box.onchange = (e) => {
+      const sel = e.target.closest("select[data-pid]");
+      if (sel) return saveParentalProfile(sel.dataset.pid, { maturity: parseInt(sel.value, 10) });
+      const libs = e.target.closest(".parental-libs[data-pid]");
+      if (libs) saveParentalProfile(libs.dataset.pid, { roots: collectLibs(libs, allRoots) });
+    };
+    $$(".parental-pin", box).forEach(inp => inp.addEventListener("keydown", e => {
+      if (e.key === "Enter") saveParentalProfile(inp.dataset.pid, { pin: inp.value }).then(() => { inp.value = ""; renderParental(); });
+    }));
+    $$(".parental-pin-clear", box).forEach(b => b.onclick = () => saveParentalProfile(b.dataset.pid, { pin: "" }).then(renderParental));
+    $$(".parental-remove", box).forEach(b => b.onclick = () => removeProfile(b.dataset.pid, b.dataset.name));
+    applyIcons(box);
+  } else if (s.accounts) {
+    let data; try { data = await api("/api/users"); } catch { data = { users: [] }; }
+    for (const u of (data.users || [])) {
+      const row = el("div", "parental-row");
+      row.innerHTML =
+        `<span class="parental-name">${escapeHtml(u.name || u.username)}${u.role === "admin" ? ' <span class="muted small">· admin</span>' : ""}</span>
+         <select class="lib-select" data-uid="${u.id}" aria-label="Maturity for ${escapeHtml(u.username)}">${optsFor(u.maturity)}</select>
+         ${libsControl(allRoots, u.libScope, "uid", u.id)}`;
+      box.appendChild(row);
+    }
+    box.onchange = (e) => {
+      const sel = e.target.closest("select[data-uid]");
+      if (sel) return saveParentalUser(sel.dataset.uid, { maturity: parseInt(sel.value, 10) });
+      const libs = e.target.closest(".parental-libs[data-uid]");
+      if (libs) saveParentalUser(libs.dataset.uid, { roots: collectLibs(libs, allRoots) });
+    };
+  }
+}
+
+// A compact "which libraries can this profile/user see" checklist (only when there's
+// more than one root — scoping a single library is meaningless). An empty scope = all.
+function libsControl(allRoots, scope, attr, id) {
+  if (!allRoots || allRoots.length < 2) return "";
+  const allowed = new Set(scope && scope.length ? scope : allRoots);   // empty = all
+  const boxes = allRoots.map(r => {
+    const name = r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r;
+    return `<label class="lib-check"><input type="checkbox" value="${escapeHtml(r)}"${allowed.has(r) ? " checked" : ""} /> ${escapeHtml(name)}</label>`;
+  }).join("");
+  return `<div class="parental-libs" data-${attr}="${escapeHtml(String(id))}"><span class="muted small">Libraries:</span>${boxes}</div>`;
+}
+// Collected scope = checked roots; if everything is checked it's "all" → [] (no restriction).
+function collectLibs(container, allRoots) {
+  const checked = $$("input[type=checkbox]", container).filter(c => c.checked).map(c => c.value);
+  return checked.length === allRoots.length ? [] : checked;
+}
+
+async function saveParentalProfile(id, fields) {
+  try {
+    await api("/api/profiles", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ action: "settings", id }, fields)) });
+    toast("Parental controls updated", "ok");
+  } catch (e) { toast(e.message, "err"); }
+}
+// fields: { maturity } or { roots }
+async function saveParentalUser(uid, fields) {
+  const action = ("roots" in fields) ? "setRoots" : "setMaturity";
+  try {
+    await api("/api/users", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ action, id: Number(uid) }, fields)) });
+    toast("Parental controls updated", "ok");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// Remove a sub-profile (and its resume/My-List/ratings/settings). Confirms first.
+function removeProfile(id, name) {
+  openDialog("Remove profile",
+    `<p>Remove the profile <b>${escapeHtml(name || id)}</b>? Its resume points, My List, ratings and limits are deleted.</p>
+     <p class="muted small">The account itself is not affected.</p>`,
+    async () => {
+      try {
+        await api("/api/profiles", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete", id }) });
+      } catch (e) { toast(e.message, "err"); return false; }
+      // if we were watching as that profile, fall back to the default identity
+      try { if (typeof currentProfile === "function" && currentProfile() === id) localStorage.removeItem("kadmu_profile"); } catch {}
+      toast("Profile removed", "ok");
+      renderParental();
+      if (typeof loadProfiles === "function") loadProfiles();   // refresh the chooser + button
+      return true;
+    });
+}

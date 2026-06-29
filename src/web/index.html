@@ -37,6 +37,11 @@
     </form>
   </div>
 
+  <!-- ===== First-run taste picker (genres) — built by onboard.js ===== -->
+  <div id="onboardOverlay" class="onboard-overlay hidden">
+    <div class="onboard-card" id="onboardCard"></div>
+  </div>
+
   <!-- ===== Kadmu Cloud — inactive-subscription notice (cloud-attach only) ===== -->
   <div id="cloudOverlay" class="login-overlay hidden">
     <div class="login-card">
@@ -120,9 +125,32 @@
   <!-- ===== Right-click context menu (rename / move / delete / new folder) ===== -->
   <div id="ctxMenu" class="ctx-menu hidden"></div>
 
+  <!-- ===== Trailer lightbox (YouTube embed; opened from a title's Trailer button) ===== -->
+  <div id="trailerModal" class="trailer-modal hidden" role="dialog" aria-modal="true" aria-label="Trailer">
+    <div class="trailer-backdrop"></div>
+    <div class="trailer-box">
+      <div class="trailer-head">
+        <span class="trailer-title" id="trailerTitle"></span>
+        <div class="trailer-head-actions">
+          <a class="btn ghost mini" id="trailerYt" href="#" target="_blank" rel="noopener">Open on YouTube</a>
+          <button class="icon-round" id="trailerClose" data-icon="close" title="Close (Esc)" aria-label="Close trailer"></button>
+        </div>
+      </div>
+      <div class="trailer-frame" id="trailerFrame"></div>
+    </div>
+  </div>
+
   <!-- ===== Main library view ===== -->
   <main id="library" class="library">
-    <!-- Home hero (root view only) — built by home.js -->
+    <!-- Netflix-style home tabs (Home / TV Shows / Movies / My List) — wired in library.js -->
+    <nav id="homeNav" class="home-nav hidden" role="tablist" aria-label="Browse">
+      <button class="home-tab active" data-home="all" role="tab" type="button">Home</button>
+      <button class="home-tab" data-home="show" role="tab" type="button">TV Shows</button>
+      <button class="home-tab" data-home="movie" role="tab" type="button">Movies</button>
+      <button class="home-tab" data-home="mylist" role="tab" type="button">My List</button>
+    </nav>
+
+    <!-- Home hero carousel (root view only) — built by home.js -->
     <section id="homeHero" class="home-hero hidden" aria-label="Featured"></section>
 
     <section id="continueSection" class="row-section hidden">
@@ -130,10 +158,28 @@
       <div class="grid continue-grid" id="continueGrid"></div>
     </section>
 
+    <!-- Personalised recommendation rows (For you / Because you liked …) — built by catalog.js -->
+    <section id="recoSection" class="hidden" aria-label="Recommended for you"></section>
+
+    <!-- Top 10 in your library (popularity rank) — built by catalog.js -->
+    <section id="topSection" class="row-section rail-section poster-rail hidden">
+      <h2 class="row-title">Top 10 in your library</h2>
+      <div class="rail-wrap"><button class="rail-arrow left" aria-label="Scroll left" type="button"></button><div class="row-rail top-rail" id="topRail"></div><button class="rail-arrow right" aria-label="Scroll right" type="button"></button></div>
+    </section>
+
+    <!-- Browse-by-genre rails (one row per category of titles you own) — built by catalog.js -->
+    <section id="genreSection" class="genre-section hidden" aria-label="Browse by category"></section>
+
+    <!-- Recently watched (watch history) — built by catalog.js -->
+    <section id="historySection" class="row-section rail-section poster-rail hidden">
+      <h2 class="row-title">Recently watched</h2>
+      <div class="rail-wrap"><button class="rail-arrow left" aria-label="Scroll left" type="button"></button><div class="row-rail" id="historyRail"></div><button class="rail-arrow right" aria-label="Scroll right" type="button"></button></div>
+    </section>
+
     <!-- Recently added rail (root view only) — built by home.js -->
     <section id="recentSection" class="row-section rail-section hidden">
       <h2 class="row-title">Recently added</h2>
-      <div class="row-rail" id="recentRail"></div>
+      <div class="rail-wrap"><button class="rail-arrow left" aria-label="Scroll left" type="button"></button><div class="row-rail" id="recentRail"></div><button class="rail-arrow right" aria-label="Scroll right" type="button"></button></div>
     </section>
 
     <section id="mylistSection" class="row-section hidden">
@@ -141,19 +187,37 @@
       <div class="grid folder-grid" id="mylistGrid"></div>
     </section>
 
-    <!-- Personalised recommendation rows (For you / Because you liked …) — built by catalog.js -->
-    <section id="recoSection" class="hidden" aria-label="Recommended for you"></section>
-
     <!-- Shows / Movies catalog (root view) + folder-browser toggle — built by catalog.js -->
     <div id="homeBar" class="home-bar hidden"></div>
+    <!-- Browse-by-genre + filters over the catalog grids — built by catalog.js -->
+    <div id="catalogBar" class="catalog-bar hidden">
+      <select id="catGenre" class="lib-select" aria-label="Filter by genre"><option value="">All genres</option></select>
+      <select id="catDecade" class="lib-select" aria-label="Filter by decade"><option value="">Any year</option></select>
+      <select id="catSort" class="lib-select" aria-label="Sort">
+        <option value="name">A–Z</option>
+        <option value="recent">Recently added</option>
+        <option value="rating">Top rated</option>
+        <option value="year">Newest</option>
+      </select>
+      <div class="filter-chips" id="catWatched" role="group" aria-label="Watched filter">
+        <button class="chip active" data-w="all" type="button">All</button>
+        <button class="chip" data-w="unwatched" type="button">Unwatched</button>
+        <button class="chip" data-w="watched" type="button">Watched</button>
+      </div>
+      <span class="grow"></span>
+      <span class="cat-count muted small" id="catCount"></span>
+    </div>
     <section id="showsSection" class="row-section hidden">
-      <h2 class="row-title">Shows</h2>
+      <h2 class="row-title">All TV Shows</h2>
       <div class="grid title-grid" id="showsGrid"></div>
     </section>
     <section id="moviesSection" class="row-section hidden">
-      <h2 class="row-title">Movies</h2>
+      <h2 class="row-title">All Movies</h2>
       <div class="grid title-grid" id="moviesGrid"></div>
     </section>
+
+    <!-- Empty-library discovery home (titles to GET, seeded by your tastes) — built by discover.js -->
+    <section id="discoverSection" class="discover-section hidden" aria-label="Discover"></section>
 
     <!-- Per-title detail page (a show's seasons/episodes, or a movie) — built by catalog.js -->
     <section id="titleView" class="title-view hidden" aria-label="Title detail"></section>
@@ -187,6 +251,12 @@
     <section id="videoSection" class="row-section hidden">
       <h2 class="row-title" id="videosTitle">Videos</h2>
       <div class="grid video-grid" id="videoGrid"></div>
+    </section>
+
+    <!-- Search: TMDB titles you don't own ("not in your library") — built by library.js -->
+    <section id="searchExtSection" class="row-section hidden">
+      <h2 class="row-title">Not in your library</h2>
+      <div class="grid title-grid" id="searchExtGrid"></div>
     </section>
 
     <div id="emptyState" class="empty hidden"></div>
@@ -281,6 +351,7 @@
               <button class="ctrl" id="sleepBtn" data-icon="timer" title="Sleep timer"></button>
               <div class="menu hidden" id="sleepMenu"></div>
             </div>
+            <button class="ctrl hidden" id="castBtn" data-icon="cast" title="Cast to a TV (Chromecast)"></button>
             <button class="ctrl" id="pipBtn" data-icon="pip" title="Picture-in-Picture (P)"></button>
             <button class="ctrl" id="fsBtn" data-icon="fullscreen" title="Fullscreen (F)"></button>
           </div>
@@ -305,8 +376,9 @@
         <div class="next-bar"><i id="nextBarFill"></i></div>
       </div>
 
-      <!-- Skip-intro (appears during an intro/recap chapter) -->
+      <!-- Skip-intro / skip-credits (appear during an intro/recap or ending/credits chapter) -->
       <button class="skip-intro hidden" id="skipIntro">Skip intro <span data-icon="next" aria-hidden="true"></span></button>
+      <button class="skip-intro hidden" id="skipCredits">Skip credits <span data-icon="next" aria-hidden="true"></span></button>
 
       <div class="pip-hint hidden" id="pipHint"></div>
 
@@ -407,6 +479,18 @@
           </div>
         </section>
 
+        <!-- Storage: disk space, what archiving reclaimed, the trash, remote count -->
+        <section class="settings-section" id="storageSection">
+          <div class="section-head">
+            <span class="section-ic" data-icon="archive" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>Storage</h4>
+              <p class="muted small">Disk space, what archiving has reclaimed, and your recoverable trash — all in one place.</p>
+            </div>
+          </div>
+          <div id="storageControl" class="storage-control"></div>
+        </section>
+
         <!-- Discovery & recommendations (TMDB metadata) -->
         <section class="settings-section" id="tmdbSection">
           <div class="section-head">
@@ -445,6 +529,22 @@
           <div id="urlList" class="url-list"></div>
         </section>
 
+        <!-- TV / big screen — 10-foot mode + Chromecast -->
+        <section class="settings-section">
+          <div class="section-head">
+            <span class="section-ic" data-icon="tv" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>On a TV or big screen</h4>
+              <p class="muted small">For watching from the couch — a larger interface you can drive with a remote.</p>
+            </div>
+          </div>
+          <label class="pref-toggle" for="tvModeToggle">
+            <input type="checkbox" id="tvModeToggle" />
+            <span>10-foot TV mode <span class="muted small">— bigger UI + arrow-key / D-pad navigation. Toggle anytime with <kbd>V</kbd>.</span></span>
+          </label>
+          <div id="castControl" class="cast-control"></div>
+        </section>
+
         <!-- Your account (accounts mode) -->
         <section class="settings-section hidden" id="accountSection">
           <div class="section-head">
@@ -468,6 +568,18 @@
             <span class="section-count" id="userCount"></span>
           </div>
           <div id="usersControl" class="users-control"></div>
+        </section>
+
+        <!-- Parental controls — per-profile / per-user maturity ceiling (+ PIN for profiles) -->
+        <section class="settings-section hidden" id="parentalSection">
+          <div class="section-head">
+            <span class="section-ic" data-icon="lock" aria-hidden="true"></span>
+            <div class="section-head-text">
+              <h4>Parental controls</h4>
+              <p class="muted small">Limit what a profile can see and play by maturity rating. Needs the TMDB metadata layer for ratings; unrated titles are hidden for kids.</p>
+            </div>
+          </div>
+          <div id="parentalControl" class="parental-control"></div>
         </section>
 
         <!-- Keyboard shortcuts & tips -->
@@ -555,6 +667,7 @@
   <script src="/js/library.js"></script>
   <script src="/js/home.js"></script>
   <script src="/js/catalog.js"></script>
+  <script src="/js/discover.js"></script>
   <script src="/js/archive.js"></script>
   <script src="/js/sources.js"></script>
   <script src="/js/manage.js"></script>
@@ -562,13 +675,17 @@
   <script src="/js/accounts.js"></script>
   <script src="/js/cloud.js"></script>
   <script src="/js/player.js"></script>
+  <script src="/js/adaptive.js"></script>
   <script src="/js/audio.js"></script>
   <script src="/js/filters.js"></script>
   <script src="/js/tune.js"></script>
   <script src="/js/playerui.js"></script>
   <script src="/js/party.js"></script>
   <script src="/js/palette.js"></script>
+  <script src="/js/tv.js"></script>
+  <script src="/js/cast.js"></script>
   <script src="/js/keys.js"></script>
+  <script src="/js/onboard.js"></script>
   <script src="/js/main.js"></script>
 </body>
 </html>

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .const import (
     DB_PATH, DATA_DIR, SESSION_TTL, PROGRESS_PATH, MYLIST_PATH, PLAYLISTS_PATH,
-    _REQ, load_json, _json_obj,
+    MATURITY_MAX, _REQ, load_json, _json_obj,
 )
 
 PBKDF2_ITERS = 240_000        # cost of one password hash (PBKDF2-HMAC-SHA256)
@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS users (
   pw_hash   TEXT NOT NULL,
   iters     INTEGER NOT NULL DEFAULT 240000,
   role      TEXT NOT NULL DEFAULT 'viewer',
+  maturity  INTEGER NOT NULL DEFAULT 4,
+  lib_scope TEXT NOT NULL DEFAULT '',
   created   REAL NOT NULL DEFAULT 0,
   last_seen REAL NOT NULL DEFAULT 0
 );
@@ -109,6 +111,13 @@ def init_db():
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         conn = _db()
         conn.executescript(DB_SCHEMA)
+        # migrate older DBs that predate a column (a no-op error if it already exists)
+        for stmt in ("ALTER TABLE users ADD COLUMN maturity INTEGER NOT NULL DEFAULT 4",
+                     "ALTER TABLE users ADD COLUMN lib_scope TEXT NOT NULL DEFAULT ''"):
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
         _db_ready = True
     db_purge_sessions()
@@ -154,8 +163,18 @@ def _user_public(row):
     """A user row stripped of its password hash, safe to return to the client."""
     if row is None:
         return None
+    keys = row.keys()
+    scope = []
+    if "lib_scope" in keys and row["lib_scope"]:
+        try:
+            scope = json.loads(row["lib_scope"])
+            scope = scope if isinstance(scope, list) else []
+        except (ValueError, TypeError):
+            scope = []
     return {"id": row["id"], "username": row["username"],
             "name": row["name"] or row["username"], "role": row["role"],
+            "maturity": row["maturity"] if "maturity" in keys else MATURITY_MAX,
+            "libScope": scope,
             "created": row["created"], "lastSeen": row["last_seen"]}
 
 
@@ -248,6 +267,27 @@ def set_user_role(uid, role):
             return False, "Can't remove the last admin."
         _db().execute("UPDATE users SET role=? WHERE id=?", (role, uid))
         _db().commit()
+    return True, None
+
+
+def set_user_maturity(uid, level):
+    """Admin-set a user's parental-controls ceiling (0=little kids … 4=no limit)."""
+    try:
+        lvl = max(0, min(MATURITY_MAX, int(level)))
+    except (TypeError, ValueError):
+        return False, "Invalid maturity level."
+    conn = _db()
+    conn.execute("UPDATE users SET maturity=? WHERE id=?", (lvl, uid))
+    conn.commit()
+    return True, None
+
+
+def set_user_roots(uid, roots):
+    """Admin-set which library roots a user may see ([] = all of them)."""
+    scope = [str(r) for r in roots] if isinstance(roots, list) else []
+    conn = _db()
+    conn.execute("UPDATE users SET lib_scope=? WHERE id=?", (json.dumps(scope), uid))
+    conn.commit()
     return True, None
 
 

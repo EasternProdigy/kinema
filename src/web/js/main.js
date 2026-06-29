@@ -18,6 +18,12 @@ function wire() {
     pushPrefs();
     if (state.keyHud) flashKey(["✓"]);   // quick confirmation of the new setting
   });
+  $("#tvModeToggle")?.addEventListener("change", (e) => toggleTvMode(e.target.checked));
+  $("#trailerClose")?.addEventListener("click", () => closeTrailer());
+  $("#trailerModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "trailerModal" || e.target.classList.contains("trailer-backdrop")) closeTrailer();
+  });
+  $("#castBtn")?.addEventListener("click", () => { if (typeof castCurrent === "function") castCurrent(); });
   $("#addRootBtn").onclick = addRoot;
   $("#browseRootBtn").onclick = addFolder;
   { const b = $("#addRemoteBtn"); if (b) b.onclick = openRemoteStorageDialog; }
@@ -62,6 +68,7 @@ function wire() {
   $("#pipBtn").onclick = togglePip;
   $("#fsBtn").onclick = toggleFs;
   $("#skipIntro")?.addEventListener("click", skipIntro);
+  $("#skipCredits")?.addEventListener("click", skipCredits);
   $("#autoNext").onclick = () => {
     state.autoNext = !state.autoNext;
     $("#autoNext").classList.toggle("on", state.autoNext);
@@ -420,6 +427,8 @@ async function boot() {
   if (state.session.authRequired && !state.session.authed) { showLogin(); return; }
   hideLogin();
   applySession();
+  if (typeof initTvMode === "function") initTvMode();   // 10-foot mode (localStorage / --tv)
+  if (typeof initCast === "function") initCast();        // Chromecast sender (opt-in, --cast)
   try { state.ccLang = localStorage.getItem("kadmu_cc") || "off"; } catch {}
   try {
     state.ccSize = localStorage.getItem("kadmu_cc_size") || "md";
@@ -439,6 +448,8 @@ async function boot() {
         if (p.keyHud != null) state.keyHud = !!Number(p.keyHud);
       }
     } catch {}
+    // household mode (--accounts + --profiles): sub-profiles under this login + the chooser
+    if (state.session.profiles) await loadProfiles();
   } else {
     await loadProfiles();          // opt-in viewer profiles (shows the chooser on first run)
   }
@@ -479,6 +490,11 @@ async function boot() {
     navMode = "replace";
     await loadLibrary(last || null, { silent: true });
   }
+
+  // First-run taste picker (seeds discovery + recommendations). No-op unless it's
+  // the right moment: metadata layer on, unrestricted viewer, not yet onboarded,
+  // and not sitting on a deep-linked video.
+  if (typeof maybeOnboard === "function") { try { await maybeOnboard(); } catch {} }
 }
 (async function init() {
   applyIcons();

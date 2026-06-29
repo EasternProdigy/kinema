@@ -9,13 +9,13 @@ from pathlib import Path
 
 from . import rt
 from .accounts import (
-    _current_uid, db_progress_all, db_set_progress, db_clear_progress,
+    _current_uid, get_user, db_progress_all, db_set_progress, db_clear_progress,
     db_mylist_all, db_mylist_set, db_ratings_all, db_set_rating, db_migrate_path,
-    db_prefs_get, db_prefs_set,
+    db_prefs_get, db_prefs_set, _pw_make, _pw_check,
 )
 from .const import (
-    CONFIG_PATH, PROGRESS_PATH, MYLIST_PATH, RATINGS_PATH, RECO_PREFS_PATH, PROFILES_PATH,
-    DATA_DIR, NATIVE_EXTS, _io_lock, _REQ, load_json, save_json,
+    CONFIG_PATH, PROGRESS_PATH, MYLIST_PATH, RATINGS_PATH, RECO_PREFS_PATH, PREFS_PATH,
+    PROFILES_PATH, DATA_DIR, NATIVE_EXTS, MATURITY_MAX, _io_lock, _REQ, load_json, save_json,
 )
 
 # Key under the per-user prefs blob (accounts mode) where reco dials live.
@@ -36,6 +36,53 @@ def _profile_slug(name):
 
 def current_profile():
     return getattr(_REQ, "profile", "default") if rt.PROFILES_ENABLED else "default"
+
+
+# --------------------------------------------------------------------------- #
+# Household merge: --accounts + --profiles together. A signed-in user (the household
+# account) can have sub-profiles. The account's own data stays in SQLite (the "Me"
+# profile, pid='default'); each *sub*-profile keeps its data + parental settings in
+# JSON under data/accounts/<uid>/ — so NOTHING in the existing accounts DB changes.
+# --------------------------------------------------------------------------- #
+def _combined_subprofile():
+    """(uid, pid) when accounts+profiles are both on AND a non-default sub-profile is
+    active — the case backed by per-account-per-profile JSON. Else None."""
+    if rt.ACCOUNTS_ENABLED and rt.PROFILES_ENABLED:
+        uid = _current_uid()
+        pid = current_profile()
+        if uid and pid != "default":
+            return uid, _profile_slug(pid)
+    return None
+
+
+def is_combined_subprofile():
+    return _combined_subprofile() is not None
+
+
+def _acct_profile_dir(uid, pid):
+    return DATA_DIR / "accounts" / str(uid) / "profiles" / _profile_slug(pid)
+
+
+def _profiles_index_path():
+    """Where the list of profiles + their settings lives: per-account in combined
+    mode, else the shared profiles.json."""
+    if rt.ACCOUNTS_ENABLED and rt.PROFILES_ENABLED:
+        uid = _current_uid()
+        if uid:
+            return DATA_DIR / "accounts" / str(uid) / "profiles.json"
+    return PROFILES_PATH
+
+
+def _sub_json(sub, name):
+    """Read a sub-profile's data file (progress.json / mylist.json / ratings.json)."""
+    d = load_json(_acct_profile_dir(*sub) / name, {})
+    return d if isinstance(d, dict) else {}
+
+
+def _sub_save(sub, name, data):
+    p = _acct_profile_dir(*sub) / name
+    p.parent.mkdir(parents=True, exist_ok=True)
+    save_json(p, data)
 
 
 def progress_path_for(pid):
@@ -69,9 +116,11 @@ def _ratings_path():
 
 
 def list_profiles():
-    """Known viewer profiles, always including the shared 'Default'."""
-    data = load_json(PROFILES_PATH, {})
-    out = [{"id": "default", "name": "Default"}]
+    """Known viewer profiles, always including the account's own 'Me' (default).
+    Account-scoped in combined accounts+profiles mode, else the shared list."""
+    data = load_json(_profiles_index_path(), {})
+    default_name = "Me" if (rt.ACCOUNTS_ENABLED and rt.PROFILES_ENABLED) else "Default"
+    out = [{"id": "default", "name": default_name}]
     if isinstance(data, dict):
         for pid, rec in data.items():
             if pid == "default":
@@ -80,19 +129,140 @@ def list_profiles():
     return out
 
 
+def delete_profile(pid):
+    """Remove a sub-profile and its data. Never the default. Returns True on success."""
+    pid = _profile_slug(pid)
+    if pid == "default":
+        return False
+    idx = _profiles_index_path()
+    with _io_lock:
+        data = load_json(idx, {})
+        if not isinstance(data, dict) or pid not in data:
+            return False
+        data.pop(pid, None)
+        save_json(idx, data)
+    return True
+
+
 def create_profile(name):
     """Create (or return existing) a viewer profile from a display name."""
     pid = _profile_slug(name)
     if pid == "default":
         return {"id": "default", "name": "Default"}
+    idx = _profiles_index_path()
     with _io_lock:
-        data = load_json(PROFILES_PATH, {})
+        data = load_json(idx, {})
         if not isinstance(data, dict):
             data = {}
         data[pid] = {"name": (name or "").strip()[:48] or pid, "created": time.time()}
-        save_json(PROFILES_PATH, data)
-    (DATA_DIR / "profiles" / pid).mkdir(parents=True, exist_ok=True)
+        save_json(idx, data)
+    idx.parent.mkdir(parents=True, exist_ok=True)
     return {"id": pid, "name": data[pid]["name"]}
+
+
+# --------------------------------------------------------------------------- #
+# Parental controls (profiles mode): a per-profile maturity ceiling + kid flag +
+# optional PIN. Profiles are a soft, family-trust model, so any viewer can edit
+# them (a parent sets the kids' limits); the PIN gates *entering* a profile.
+# --------------------------------------------------------------------------- #
+def profile_record(pid):
+    data = load_json(_profiles_index_path(), {})
+    rec = data.get(pid) if isinstance(data, dict) else None
+    return rec if isinstance(rec, dict) else {}
+
+
+def profile_settings(pid):
+    """Public parental-controls view of a profile (never the PIN hash itself)."""
+    if pid == "default":
+        return {"id": "default", "name": "Default", "maturity": MATURITY_MAX, "kid": False, "pin": False}
+    rec = profile_record(pid)
+    try:
+        m = max(0, min(MATURITY_MAX, int(rec.get("maturity", MATURITY_MAX))))
+    except (TypeError, ValueError):
+        m = MATURITY_MAX
+    roots = rec.get("roots")
+    return {"id": pid, "name": rec.get("name") or pid, "maturity": m,
+            "kid": bool(rec.get("kid")), "pin": bool(rec.get("pinHash")),
+            "roots": list(roots) if isinstance(roots, list) else []}
+
+
+def set_profile_settings(pid, maturity=None, kid=None, pin=None, roots=None):
+    """Set a profile's maturity/kid/PIN/library-scope. pin: a string to set, "" to clear,
+    None to leave. roots: a list of allowed root paths ([] = all), None to leave. Returns
+    False for an unknown / the default profile."""
+    if pid == "default":
+        return False
+    idx = _profiles_index_path()
+    with _io_lock:
+        data = load_json(idx, {})
+        if not isinstance(data, dict) or pid not in data:
+            return False
+        rec = data[pid]
+        if maturity is not None:
+            try:
+                rec["maturity"] = max(0, min(MATURITY_MAX, int(maturity)))
+            except (TypeError, ValueError):
+                pass
+        if kid is not None:
+            rec["kid"] = bool(kid)
+        if roots is not None:
+            rec["roots"] = [str(r) for r in roots] if isinstance(roots, list) else []
+        if pin is not None:
+            if pin == "":
+                for k in ("pinHash", "pinSalt", "pinIters"):
+                    rec.pop(k, None)
+            else:
+                salt, h, iters = _pw_make(pin)
+                rec["pinHash"], rec["pinSalt"], rec["pinIters"] = h, salt, iters
+        save_json(idx, data)
+    return True
+
+
+def verify_profile_pin(pid, pin):
+    """True if the PIN matches (or the profile has no PIN)."""
+    rec = profile_record(pid)
+    if not rec.get("pinHash"):
+        return True
+    return _pw_check(pin, rec.get("pinSalt"), rec.get("pinHash"), rec.get("pinIters", 240000))
+
+
+def active_profile_ceiling():
+    """(maturity_ceiling, hide_unrated) for the active viewer in profiles mode."""
+    s = profile_settings(current_profile())
+    m = s["maturity"]
+    return m, (m < MATURITY_MAX)
+
+
+# --------------------------------------------------------------------------- #
+# Per-viewer library scoping — restrict which root folders a profile / user sees.
+# --------------------------------------------------------------------------- #
+def viewer_root_scope():
+    """The set of allowed root path-strings for the active viewer, or None for 'all'
+    (the unscoped default — the box owner / adult profiles)."""
+    if _combined_subprofile():                       # accounts+profiles sub-profile
+        scope = profile_record(current_profile()).get("roots")
+        return {str(r) for r in scope} if isinstance(scope, list) and scope else None
+    if rt.ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if uid:
+            scope = (get_user(uid) or {}).get("libScope")
+            if isinstance(scope, list) and scope:
+                return {str(r) for r in scope}
+        return None
+    if rt.PROFILES_ENABLED:
+        scope = profile_record(current_profile()).get("roots")
+        if isinstance(scope, list) and scope:
+            return {str(r) for r in scope}
+    return None
+
+
+def viewer_roots():
+    """real_roots() filtered to the active viewer's scope (all roots when unscoped)."""
+    scope = viewer_root_scope()
+    roots = real_roots()
+    if scope is None:
+        return roots
+    return [r for r in roots if str(r) in scope]
 
 
 def get_config():
@@ -168,6 +338,9 @@ def load_progress():
     locking. Records are always replaced wholesale (never mutated in place), so
     callers can read the value dicts they get back. In accounts mode the table is
     scoped to the signed-in user (SQLite); otherwise it's the shared/profile JSON."""
+    sub = _combined_subprofile()
+    if sub:
+        return _sub_json(sub, "progress.json")
     if rt.ACCOUNTS_ENABLED:
         uid = _current_uid()
         return db_progress_all(uid) if uid else {}
@@ -184,6 +357,12 @@ def save_progress(data: dict):
 
 def set_progress(path_str: str, rec: dict):
     """Upsert one resume entry for the active viewer."""
+    sub = _combined_subprofile()
+    if sub:
+        cache = _sub_json(sub, "progress.json")
+        cache[path_str] = rec
+        _sub_save(sub, "progress.json", cache)
+        return
     if rt.ACCOUNTS_ENABLED:
         uid = _current_uid()
         if uid:
@@ -199,6 +378,13 @@ def set_progress(path_str: str, rec: dict):
 def clear_progress(path_str: str | None):
     """Drop one entry (by path) or, with path_str=None, the whole table — for the
     active viewer."""
+    sub = _combined_subprofile()
+    if sub:
+        cache = {} if path_str is None else _sub_json(sub, "progress.json")
+        if path_str is not None:
+            cache.pop(path_str, None)
+        _sub_save(sub, "progress.json", cache)
+        return
     if rt.ACCOUNTS_ENABLED:
         uid = _current_uid()
         if uid:
@@ -245,7 +431,10 @@ def owning_root(path: Path):
 # --------------------------------------------------------------------------- #
 def my_list_items():
     """Stored watchlist (active viewer), filtered to entries that still exist."""
-    if rt.ACCOUNTS_ENABLED:
+    sub = _combined_subprofile()
+    if sub:
+        data = _sub_json(sub, "mylist.json")
+    elif rt.ACCOUNTS_ENABLED:
         uid = _current_uid()
         data = db_mylist_all(uid) if uid else {}
     else:
@@ -269,6 +458,20 @@ def my_list_items():
 def my_list_set(path: str, on: bool, name: str = ""):
     """Add or remove a path from the active viewer's watchlist. Returns the
     updated paths set (or None if the path is outside the library)."""
+    sub = _combined_subprofile()
+    if sub:
+        with _io_lock:
+            data = _sub_json(sub, "mylist.json")
+            if on:
+                p = resolve_within_roots(path, must_exist=True)
+                if not p:
+                    return None
+                data[str(p)] = {"name": name or p.name, "added": time.time()}
+            else:
+                p = resolve_within_roots(path, must_exist=False)
+                data.pop(str(p) if p else path, None)
+            _sub_save(sub, "mylist.json", data)
+        return list(data.keys())
     if rt.ACCOUNTS_ENABLED:
         uid = _current_uid()
         if uid is None:
@@ -313,6 +516,9 @@ def _rating_int(rec):
 
 def load_ratings():
     """The active viewer's ratings as {key: {"rating", "updated"}}."""
+    sub = _combined_subprofile()
+    if sub:
+        return _sub_json(sub, "ratings.json")
     if rt.ACCOUNTS_ENABLED:
         uid = _current_uid()
         return db_ratings_all(uid) if uid else {}
@@ -328,6 +534,16 @@ def get_rating(key: str):
 def set_rating(key: str, value):
     """Upsert one rating; a value of 0 clears it. -1/0/1 only."""
     value = _rating_int(value)
+    sub = _combined_subprofile()
+    if sub:
+        with _io_lock:
+            data = _sub_json(sub, "ratings.json")
+            if value == 0:
+                data.pop(key, None)
+            else:
+                data[key] = {"rating": value, "updated": time.time()}
+            _sub_save(sub, "ratings.json", data)
+        return value
     if rt.ACCOUNTS_ENABLED:
         uid = _current_uid()
         if uid:
@@ -392,6 +608,79 @@ def save_reco_weights(weights: dict):
     with _io_lock:
         save_json(_reco_prefs_path(), weights)
     return weights
+
+
+# --------------------------------------------------------------------------- #
+# General per-viewer preferences (genres the viewer likes, first-run onboarding
+# flag, mirrored display prefs). Same per-viewer split as the reco dials, but the
+# whole blob is exposed (the reco dials live inside it under _RECO_PREFS_KEY in
+# accounts mode). Writes MERGE, so one client (the player saving caption prefs)
+# never clobbers another (the genre picker saving tastes).
+# --------------------------------------------------------------------------- #
+_GENRES_KEY = "genres"
+_ONBOARDED_KEY = "onboarded"
+
+
+def _prefs_path_for(pid):
+    if not rt.PROFILES_ENABLED or pid == "default":
+        return PREFS_PATH
+    return DATA_DIR / "profiles" / _profile_slug(pid) / "prefs.json"
+
+
+def _prefs_path():
+    return _prefs_path_for(current_profile())
+
+
+def load_view_prefs():
+    """The active viewer's general prefs blob. Per-user in accounts mode, a JSON file
+    (profile-scoped) otherwise. Always a dict."""
+    if rt.ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if not uid:
+            return {}
+        data = db_prefs_get(uid) or {}
+        return data if isinstance(data, dict) else {}
+    data = load_json(_prefs_path(), {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_view_prefs(patch):
+    """Merge `patch` into the active viewer's prefs blob (preserving other keys such
+    as the reco dials). Returns the merged blob."""
+    patch = patch if isinstance(patch, dict) else {}
+    if rt.ACCOUNTS_ENABLED:
+        uid = _current_uid()
+        if not uid:
+            return {}
+        data = db_prefs_get(uid) or {}
+        if not isinstance(data, dict):
+            data = {}
+        data.update(patch)
+        db_prefs_set(uid, data)
+        return data
+    with _io_lock:
+        data = load_json(_prefs_path(), {})
+        if not isinstance(data, dict):
+            data = {}
+        data.update(patch)
+        save_json(_prefs_path(), data)
+    return data
+
+
+def preferred_genres():
+    """The genre names the active viewer picked (first-run or in settings), or []."""
+    g = load_view_prefs().get(_GENRES_KEY)
+    return [str(x) for x in g][:12] if isinstance(g, list) else []
+
+
+def is_onboarded():
+    return bool(load_view_prefs().get(_ONBOARDED_KEY))
+
+
+def set_genre_prefs(genres, onboarded=True):
+    """Persist the viewer's genre picks + mark first-run onboarding done."""
+    clean = [str(g).strip() for g in (genres or []) if str(g).strip()][:12]
+    return save_view_prefs({_GENRES_KEY: clean, _ONBOARDED_KEY: bool(onboarded)})
 
 
 # --------------------------------------------------------------------------- #

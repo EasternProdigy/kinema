@@ -24,7 +24,7 @@ from . import cloud
 from .handler import Handler
 from .const import (
     APP_NAME, APP_VERSION, CACHE_DIR, CACHE_MAX_BYTES, CACHE_SWEEP_INTERVAL,
-    CACHE_TTL, DATA_DIR, FFMPEG, REMUX_DIR, STATE_DIR, STORYBOARD_DIR, TRASH_TTL,
+    CACHE_TTL, DATA_DIR, FFMPEG, HLS_DIR, REMUX_DIR, STATE_DIR, STORYBOARD_DIR, TRASH_TTL,
 )
 from .accounts import (
     create_user, db_logout_user_sessions, db_purge_sessions, get_user_by_name,
@@ -47,6 +47,10 @@ def _cache_janitor():
         time.sleep(CACHE_SWEEP_INTERVAL)
         try:
             prune_cache(REMUX_DIR, CACHE_MAX_BYTES, CACHE_TTL)
+        except Exception:
+            pass
+        try:
+            prune_cache(HLS_DIR, CACHE_MAX_BYTES, CACHE_TTL)   # on-demand HLS segments
         except Exception:
             pass
         try:
@@ -225,6 +229,15 @@ def main():
                         default=os.environ.get("KADMU_DLNA") in ("1", "true", "yes"),
                         help="advertise a DLNA/UPnP MediaServer so smart TVs / consoles can "
                              "play your library natively (LAN-local; implies network sharing)")
+    parser.add_argument("--tv", action="store_true",
+                        default=os.environ.get("KADMU_TV") in ("1", "true", "yes"),
+                        help="default the interface into 10-foot 'TV mode' (bigger UI + "
+                             "arrow-key / D-pad navigation) — for a couch / set-top install")
+    parser.add_argument("--cast", action="store_true",
+                        default=os.environ.get("KADMU_CAST") in ("1", "true", "yes"),
+                        help="enable the Chromecast sender (loads Google's Cast SDK in the "
+                             "browser; off by default — the only feature that fetches a 3rd-party "
+                             "script). Best on an open LAN; DLNA stays the privacy-pure path")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     args = parser.parse_args()
 
@@ -237,12 +250,12 @@ def main():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     rt.ACCOUNTS_ENABLED = bool(args.accounts) or bool(args.reset_password)
-    # Accounts replace the simpler viewer-profiles feature (they ARE per-user).
+    rt.PROFILES_ENABLED = bool(args.profiles)
+    # Household mode: --accounts + --profiles together = one login, multiple sub-profiles
+    # (the account's own data is the "Me" profile; sub-profiles store theirs in JSON under
+    # data/accounts/<uid>/, so the accounts DB is untouched). Either flag alone is unchanged.
     if rt.ACCOUNTS_ENABLED:
-        rt.PROFILES_ENABLED = False
         init_db()
-    else:
-        rt.PROFILES_ENABLED = bool(args.profiles)
 
     # Recovery escape hatch: reset (or create, as admin) an account from the console,
     # for when the only admin is locked out. Local console access == box owner.
@@ -334,6 +347,8 @@ def main():
     # DLNA is inherently a LAN feature (TVs/consoles on your network), so enabling it
     # turns on network sharing too. Off by default; opt-in via --dlna / KADMU_DLNA.
     rt.DLNA = bool(args.dlna)
+    rt.TV = bool(args.tv)            # UI hint: the frontend defaults into 10-foot mode
+    rt.CAST = bool(args.cast)        # opt-in Chromecast sender (relaxes CSP for the Cast SDK)
     rt.LAN_MODE = bool(args.lan) or bool(args.dlna) or bool(get_config().get("lan"))
     bind_host = args.host or "0.0.0.0"
     rt.BIND_HOST = bind_host

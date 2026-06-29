@@ -232,6 +232,8 @@ body.searching-mode .search-clear { display: grid; }
   background: var(--surface-2); display: grid; place-items: center;
 }
 .sdd-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* portrait poster thumb for "not in your library" (TMDB) rows */
+.sdd-thumb.sdd-poster { width: 26px; height: 38px; }
 .sdd-ph { color: var(--ink-300); display: grid; place-items: center; }
 .sdd-ph svg { width: 18px; height: 18px; }
 
@@ -250,6 +252,7 @@ body.searching-mode .search-clear { display: grid; }
 .sdd-tag { flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--ink-500); }
 .sdd-tag svg { width: 14px; height: 14px; }
 .sdd-tag.ok { color: var(--success); }
+.sdd-tag.get { color: var(--orange); }   /* "+" on a not-in-your-library result */
 
 .sdd-empty { padding: 18px 12px; color: var(--ink-500); font-size: 13px; text-align: center; }
 
@@ -978,6 +981,18 @@ code { background: var(--surface-2); border: 1px solid var(--line); border-radiu
 /* ---- accounts: people / users list ---- */
 .users-control { display: flex; flex-direction: column; gap: 12px; }
 .user-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* parental controls — per-profile / per-user maturity rows */
+.parental-control { display: flex; flex-direction: column; gap: 9px; }
+.parental-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 11px; }
+.parental-row .parental-name { font-weight: 600; min-width: 90px; flex: 1; }
+.parental-row .lib-select { min-width: 150px; }
+.parental-row .parental-pin { width: 150px; }
+.parental-row .btn.mini { padding: 5px 11px; font-size: 12.5px; }
+.parental-libs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-basis: 100%; margin-top: 2px; }
+.parental-libs .lib-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; cursor: pointer; }
+.parental-libs .lib-check input { accent-color: var(--orange); }
 .user-row { display: flex; align-items: center; gap: 11px; background: var(--surface-2);
   border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 11px; flex-wrap: wrap; }
 .user-ava { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: var(--grad); color: #fff;
@@ -1217,6 +1232,21 @@ input:not([type=range]):focus-visible, textarea:focus-visible { outline: none; }
 }
 .lib-select:hover { border-color: var(--orange); }
 .lib-select:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+
+/* catalog browse-by-genre / filter bar (mirrors .lib-toolbar) */
+.catalog-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 18px; }
+.catalog-bar .grow { flex: 1; min-width: 0; }
+.catalog-bar .lib-select.hidden { display: none; }
+.cat-count { white-space: nowrap; }
+/* title cards in a horizontal rail (Top 10 / Recently watched) snap like video cards */
+.rail-section .row-rail .title-card { scroll-snap-align: start; }
+/* Top-10 rank numeral, bottom-left of the poster (clear of the seen/rating flags) */
+.title-card .poster .top-rank {
+  position: absolute; left: 8px; bottom: 10px; z-index: 2; pointer-events: none;
+  min-width: 22px; height: 22px; padding: 0 6px; border-radius: 7px; display: grid; place-items: center;
+  font-weight: 800; font-size: 13px; background: var(--orange); color: #fff;
+  box-shadow: 0 1px 5px rgba(0,0,0,.4);
+}
 .filter-chips { display: inline-flex; align-items: center; gap: 4px;
   background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 3px; height: 36px; }
 .chip {
@@ -1344,6 +1374,17 @@ body.view-list .folder-ic { border-radius: var(--radius); }
   color: var(--ink-700); font: inherit; transition: transform .1s ease, background .12s ease;
 }
 .profile-tile:hover { background: var(--surface-2); transform: translateY(-2px); }
+.profile-tile { position: relative; }
+.profile-tile .profile-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: #fff; background: var(--orange); padding: 1px 7px; border-radius: 999px; }
+.profile-tile .profile-lock { position: absolute; top: 6px; right: 10px; width: 16px; height: 16px; color: var(--muted); }
+.profile-tile .profile-lock svg { width: 16px; height: 16px; }
+/* profile PIN entry */
+.pin-form { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 4px 0; }
+.pin-form .pin-title { font-weight: 600; }
+.pin-form #pinInput { width: 180px; text-align: center; letter-spacing: .3em; font-size: 18px; }
+.pin-form .pin-error { color: var(--error); font-size: 13px; min-height: 16px; }
+.pin-form .pin-actions { display: flex; gap: 10px; }
 .profile-ava.big { width: 72px; height: 72px; font-size: 30px; border-radius: 16px; }
 .profile-tile.current .profile-ava.big { outline: 3px solid var(--orange); outline-offset: 2px; }
 .profile-name {
@@ -1570,6 +1611,67 @@ body.view-list .folder-ic { border-radius: var(--radius); }
 .hero-actions .hero-open { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.22); color: #fff; }
 .hero-actions .hero-open:hover { background: rgba(255,255,255,.24); border-color: rgba(255,255,255,.4); }
 @media (max-width: 700px) { .home-hero { min-height: 260px; } .hero-content { padding: 22px; } }
+.hero-actions .hero-open svg { width: 16px; height: 16px; }
+
+/* ---- home tabs (Home / TV Shows / Movies / My List) ---- */
+.home-nav { display: flex; gap: 6px; margin: 2px 0 18px; flex-wrap: wrap; }
+.home-tab {
+  appearance: none; border: 1px solid transparent; background: transparent; cursor: pointer;
+  color: var(--muted); font: inherit; font-weight: 650; font-size: 14px;
+  padding: 8px 16px; border-radius: 999px; transition: background .12s ease, color .12s ease;
+}
+.home-tab:hover { color: var(--text); background: var(--surface-2); }
+.home-tab.active { color: #fff; background: var(--grad); border-color: transparent; }
+
+/* ---- hero carousel: cross-fading slides + arrows + dots ---- */
+.hero-track { position: absolute; inset: 0; z-index: 0; }
+.hero-slide {
+  position: absolute; inset: 0; display: flex; align-items: flex-end;
+  opacity: 0; visibility: hidden; transition: opacity .5s ease;
+}
+.hero-slide.on { opacity: 1; visibility: visible; z-index: 1; }
+.hero-nav {
+  position: absolute; top: 0; bottom: 32px; width: 56px; z-index: 3; border: 0; cursor: pointer;
+  background: transparent; display: grid; place-items: center; opacity: 0; transition: opacity .15s ease;
+}
+.home-hero:hover .hero-nav { opacity: .8; }
+.hero-nav:hover { opacity: 1; }
+.hero-nav.prev { left: 0; } .hero-nav.next { right: 0; }
+.hero-nav::before {
+  content: ""; width: 15px; height: 15px; border-right: 2.5px solid #fff; border-bottom: 2.5px solid #fff;
+}
+.hero-nav.prev::before { transform: rotate(135deg); } .hero-nav.next::before { transform: rotate(-45deg); }
+.hero-dots { position: absolute; right: 22px; bottom: 16px; z-index: 3; display: flex; gap: 7px; }
+.hero-dot {
+  width: 9px; height: 9px; padding: 0; border: 0; border-radius: 999px; cursor: pointer;
+  background: rgba(255,255,255,.4); transition: background .15s ease, width .15s ease;
+}
+.hero-dot.on { background: #fff; width: 22px; }
+.home-hero.single .hero-nav, .home-hero.single .hero-dots { display: none; }
+
+/* ---- rail scroll arrows (revealed on hover when a rail overflows) ---- */
+.rail-wrap { position: relative; }
+.rail-arrow {
+  position: absolute; top: 0; bottom: 10px; width: 46px; z-index: 4; border: 0; cursor: pointer;
+  display: grid; place-items: center; opacity: 0; pointer-events: none;
+  background: rgba(10,8,6,.55); color: #fff; transition: opacity .15s ease, background .15s ease;
+}
+.rail-arrow.left { left: 0; border-radius: 0 var(--radius) var(--radius) 0; }
+.rail-arrow.right { right: 0; border-radius: var(--radius) 0 0 var(--radius); }
+.rail-wrap.scrollable:hover .rail-arrow { opacity: 1; pointer-events: auto; }
+.rail-arrow:hover { background: rgba(10,8,6,.8); }
+.rail-arrow::before {
+  content: ""; width: 13px; height: 13px; border-right: 2.5px solid #fff; border-bottom: 2.5px solid #fff;
+}
+.rail-arrow.left::before { transform: rotate(135deg); } .rail-arrow.right::before { transform: rotate(-45deg); }
+@media (hover: none) { .rail-arrow { display: none; } }   /* touch devices swipe instead */
+
+/* ---- poster rails (category rows, reco rows, Top 10, history) ---- */
+.poster-rail .row-rail { grid-auto-columns: 168px; }
+body[data-size="small"] .poster-rail .row-rail { grid-auto-columns: 140px; }
+body[data-size="large"] .poster-rail .row-rail { grid-auto-columns: 200px; }
+.rail-section .row-rail .title-card { scroll-snap-align: start; }
+.genre-section .row-section:last-child { margin-bottom: 30px; }
 
 /* ---- recently-added rail (horizontal scroll) ---- */
 .rail-section .row-rail {
@@ -1593,16 +1695,22 @@ body[data-size="small"] .title-grid { grid-template-columns: repeat(auto-fill, m
 body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); }
 
 .title-card {
-  background: var(--surface); border: 1px solid var(--ink-100);
-  border-radius: var(--radius); overflow: hidden; cursor: pointer;
-  position: relative; transition: border-color .1s ease;
+  background: transparent; border: 0; border-radius: var(--radius); cursor: pointer;
+  position: relative; transition: transform .18s ease;
   user-select: none; -webkit-user-select: none;
 }
-.title-card:hover { border-color: var(--orange); }
+.title-card:hover { transform: scale(1.06); z-index: 6; }
 .title-card .poster {
-  position: relative; aspect-ratio: 16/9; background: #20262e center/cover no-repeat;
+  position: relative; aspect-ratio: 2/3; border-radius: var(--radius); overflow: hidden;
+  background: var(--surface-2) center/cover no-repeat;
   display: grid; place-items: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,.28); transition: box-shadow .18s ease;
 }
+.title-card:hover .poster { box-shadow: 0 12px 30px rgba(0,0,0,.55); }
+/* the plain Series/Movie chip is clutter on a poster wall — only the "TMDB" get-it
+   badge stays, to mark titles you don't own yet */
+.title-card .kind-badge { display: none; }
+.title-card .kind-badge.discover-badge { display: block; }
 .title-card .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .title-card .poster .ph { color: rgba(255,255,255,.22); }
 .title-card .poster .ph svg { width: 38px; height: 38px; }
@@ -1643,14 +1751,45 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
 .rb-file.disabled { opacity: .55; cursor: default; }
 .rb-file.disabled .muted { margin-left: auto; }
 
-/* archive (reclaim disk) control on the title detail page */
-.title-archive { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 4px; }
-.title-archive .arch-go { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; }
-.title-archive.suggest .arch-go { border-color: var(--orange); color: var(--orange); }
-.title-archive .arch-ic svg { width: 17px; height: 17px; }
-.title-archive .arch-note { color: var(--muted); font-size: 12.5px; }
-.title-archive.running { flex-direction: row; align-items: center; gap: 10px;
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+/* ---- "Options" dropdown on the title detail page (Resume row → ⋯ Options) ---- */
+.title-more { position: relative; }
+/* icon-only round button, matching the thumbs buttons in the same row.
+   `.title-actions .title-more .title-more-btn` outranks `.title-actions .btn`. */
+.title-actions .title-more .title-more-btn {
+  width: 42px; height: 42px; padding: 0; gap: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.28); color: #fff;
+}
+.title-more-btn:hover { background: rgba(255,255,255,.22); border-color: rgba(255,255,255,.4); }
+.title-more-btn .more-ic { display: inline-flex; }
+.title-more-btn .more-ic svg { width: 20px; height: 20px; }
+.title-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; min-width: 230px; z-index: 40;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 14px 34px rgba(0,0,0,.4); padding: 6px; display: flex; flex-direction: column; gap: 2px;
+}
+.title-menu.hidden { display: none; }
+.title-menu::before { content: ""; position: absolute; left: 0; right: 0; top: -10px; height: 10px; }  /* hover bridge */
+.title-menu .menu-item, .title-menu .arch-go {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit;
+  background: transparent; border: 0; color: var(--text); cursor: pointer;
+  padding: 9px 10px; border-radius: var(--radius-sm); font-size: 14px;
+}
+.title-menu .menu-item:hover, .title-menu .arch-go:hover { background: var(--surface-2); }
+.title-menu .menu-item svg, .title-menu .arch-ic svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+/* outrank `.title-actions .btn` so the archive row matches the other menu items
+   (display:flex avoids the inline-baseline gap a block wrapper would add) */
+.title-menu .title-archive .arch-go { display: flex; padding: 9px 10px; font-size: 14px; width: 100%; }
+
+/* archive (reclaim disk) control — lives inside the Options menu */
+.title-menu .title-archive { width: 100%; display: flex; flex-direction: column; }
+.title-archive { width: 100%; }
+.title-archive.suggest .arch-go { color: var(--ember); }
+.title-archive.suggest .arch-ic svg { color: var(--ember); }
+/* while running, it becomes a small status card with the progress bar */
+.title-menu .title-archive.running { margin: 2px 0; flex-direction: row; align-items: center; gap: 10px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; }
+.title-menu .title-archive.done { padding: 9px 10px; display: flex; align-items: center; gap: 10px; }
 .title-archive.running .arch-ic { color: var(--orange); }
 .title-archive .arch-body { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 160px; }
 .title-archive .arch-label { font-size: 13px; font-weight: 600; }
@@ -1666,15 +1805,50 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
 .title-card:hover .poster .play-ic { opacity: 1; }
 .title-card .poster .resume { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.45); }
 .title-card .poster .resume > i { display: block; height: 100%; background: var(--orange); }
-.title-foot { padding: 10px 12px 12px; }
-.title-name { font-weight: 600; font-size: 15px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.title-sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+.title-foot { padding: 8px 2px 0; }
+.title-name { font-weight: 600; font-size: 13.5px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-sub { color: var(--muted); font-size: 11.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* external (TMDB) suggestions you don't own yet — dashed tile + info dialog */
-.title-card.external { border-style: dashed; }
-.title-card.external:hover { border-color: var(--ember); }
+/* external (TMDB) suggestions you don't own yet — a dashed ring round the poster */
+.title-card.external .poster { outline: 1.5px dashed rgba(245,131,47,.55); outline-offset: -1.5px; }
 .title-card .kind-badge.discover-badge { background: var(--grad); }
 .title-card .poster .discover-ic svg { width: 30px; height: 30px; color: #fff; }
+
+/* ===================== streaming-home polish (Netflix / Hulu feel) ===================== */
+/* Content-rail headings go white & roomy like a streaming service. The brand's orange
+   uppercase label style stays for the classic file browser (folders / videos). */
+#continueSection > .row-title,
+#mylistSection > .row-title,
+#showsSection > .row-title,
+#moviesSection > .row-title,
+.rail-section > .row-title {
+  text-transform: none; letter-spacing: -.01em; color: var(--text);
+  font-size: 19px; font-weight: 700; margin: 0 0 12px;
+}
+/* headroom so the poster hover-scale doesn't clip against the rail's clipped edges */
+.poster-rail .row-rail { padding: 14px 2px 20px; }
+.poster-rail .rail-arrow { top: 14px; bottom: 20px; }
+
+/* hero: taller + cinematic, with a synopsis and maturity / genre chips */
+.home-hero { min-height: clamp(360px, 52vh, 560px); margin-bottom: 26px; }
+.home-hero .hero-content { max-width: 600px; padding: 36px 44px; }
+.hero-chips { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.hero-mat {
+  border: 1px solid rgba(255,255,255,.5); color: #fff; font-size: 12px; font-weight: 600;
+  padding: 1px 7px; border-radius: var(--radius-sm); letter-spacing: .02em;
+}
+.hero-genres { color: #e7ded7; font-size: 13px; }
+.hero-overview {
+  color: #d8d2cc; font-size: 14.5px; line-height: 1.5; margin: 0 0 18px; max-width: 540px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  text-shadow: 0 1px 8px rgba(0,0,0,.4);
+}
+@media (max-width: 700px) {
+  .home-hero { min-height: 320px; }
+  .home-hero .hero-content { padding: 22px; }
+  .hero-overview { -webkit-line-clamp: 2; }
+}
+
 .discover-dlg { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 .discover-poster { width: 120px; border-radius: var(--radius); flex-shrink: 0; background: #20262e; }
 .discover-meta { flex: 1; min-width: 200px; }
@@ -1683,29 +1857,45 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
 
 /* ===================== title detail page (seasons / episodes, or a movie) ===================== */
 .title-hero {
-  position: relative; border-radius: var(--radius); overflow: hidden;
+  position: relative; z-index: 2; border-radius: var(--radius); overflow: visible;
   min-height: 340px; display: flex; align-items: flex-end; isolation: isolate;
   border: 1px solid var(--line); background: #0c0a09; margin-bottom: 26px;
 }
-.title-hero-bg { position: absolute; inset: 0; z-index: 0; }
+/* corners are clipped on the backdrop + scrim so the Options dropdown can overflow the hero */
+.title-hero-bg { position: absolute; inset: 0; z-index: 0; border-radius: var(--radius); overflow: hidden; }
 .title-hero-bg img { width: 100%; height: 100%; object-fit: cover; filter: saturate(1.05); }
 .title-hero-bg.noimg { background: var(--grad); }
-.title-hero-scrim { position: absolute; inset: 0; z-index: 1;
+.title-hero-scrim { position: absolute; inset: 0; z-index: 1; border-radius: var(--radius);
   background: linear-gradient(90deg, rgba(8,6,5,.92) 0%, rgba(8,6,5,.7) 40%, rgba(8,6,5,.2) 100%),
               linear-gradient(0deg, rgba(8,6,5,.9), rgba(8,6,5,0) 60%); }
+/* Back sits above the hero card now (it used to overlap the "Series" eyebrow). */
 .title-back {
-  position: absolute; left: 18px; top: 18px; z-index: 3;
-  background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.22); color: #fff;
-  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; margin: 0 0 12px;
 }
 .title-back svg { width: 16px; height: 16px; transform: rotate(-90deg); }   /* "up" glyph → points left */
-.title-back:hover { background: rgba(255,255,255,.24); border-color: rgba(255,255,255,.4); }
 .title-hero-content { position: relative; z-index: 2; padding: 30px 34px; max-width: 700px; color: #fff; }
 .title-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
   color: var(--ember); margin-bottom: 8px; }
 .title-hero-name { margin: 0 0 8px; font-size: clamp(26px, 4vw, 40px); font-weight: 800; line-height: 1.05;
   letter-spacing: -.02em; text-shadow: 0 2px 16px rgba(0,0,0,.5); }
-.title-hero-sub { color: #d8d2cc; font-size: 14px; margin-bottom: 16px; }
+.title-hero-sub { color: #d8d2cc; font-size: 14px; margin-bottom: 14px; }
+.title-hero-overview {
+  color: #e3ddd6; font-size: 14.5px; line-height: 1.55; margin: 0 0 14px; max-width: 560px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  text-shadow: 0 1px 8px rgba(0,0,0,.5);
+}
+/* Creator / Cast credits, pinned to the bottom-right corner of the hero card.
+   The scrim's bottom gradient darkens this band, so light text stays readable. */
+.title-credits {
+  position: absolute; right: 44px; bottom: 34px; z-index: 2;
+  max-width: 38%; text-align: right;
+}
+.title-credits .title-people {
+  color: #d2cac2; font-size: 13px; margin-top: 4px; line-height: 1.4;
+  text-shadow: 0 1px 6px rgba(0,0,0,.65);
+}
+.title-credits .title-people .tp-label { color: #fff; font-weight: 600; margin-right: 5px; }
+@media (max-width: 880px) { .title-credits { display: none; } }   /* corner credits are a wide-screen flourish */
 .title-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .title-actions .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; font-size: 15px; }
 .title-actions .title-resume svg { width: 18px; height: 18px; }
@@ -1724,6 +1914,36 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
 .rate-btn.down.on { background: var(--slate); border-color: transparent; }
 
 .title-body { padding: 0 2px 30px; }
+/* Franchise / collection rail (owned titles in the same series, oldest-first) */
+.title-collection { margin-top: 28px; }
+.collection-head { font-size: 16px; font-weight: 700; margin: 0 0 12px; }
+.collection-rail { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+.collection-card {
+  flex: 0 0 130px; width: 130px; text-align: left; cursor: pointer;
+  background: none; border: none; padding: 0; color: inherit; font: inherit;
+}
+.collection-poster {
+  width: 130px; aspect-ratio: 2 / 3; border-radius: var(--radius); overflow: hidden;
+  background: var(--surface-2); border: 1px solid var(--ink-100);
+  transition: border-color .1s ease, transform .08s ease;
+}
+.collection-card:hover .collection-poster { border-color: var(--orange); transform: translateY(-2px); }
+.collection-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.collection-poster.noimg { background: var(--grad); opacity: .5; }
+.collection-name { margin-top: 7px; font-size: 13px; line-height: 1.3; }
+.collection-name .cc-year { color: var(--muted); }
+/* Trailer lightbox — an in-app YouTube (no-cookie) embed, opened from a title's Trailer button */
+.trailer-modal { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.trailer-modal.hidden { display: none; }
+.trailer-backdrop { position: absolute; inset: 0; background: rgba(8, 6, 5, .82); backdrop-filter: blur(4px); }
+.trailer-box { position: relative; z-index: 1; width: min(1100px, 94vw); display: flex; flex-direction: column; gap: 10px; }
+.trailer-head { display: flex; align-items: center; gap: 12px; }
+.trailer-title { font-weight: 700; font-size: 16px; color: #fff; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trailer-head-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.trailer-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000;
+  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-lg); }
+.trailer-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .season-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .season-label { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--orange); font-weight: 600; }
 .season-bar .lib-select { min-width: 210px; }
@@ -1762,6 +1982,25 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
   .title-hero-content { padding: 22px; }
 }
 
+/* ---- title detail: TMDB info (synopsis / cast / chips) + per-episode synopses ---- */
+.title-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+.meta-chip {
+  border: 1px solid rgba(255,255,255,.32); color: #f0eae4; font-size: 12px;
+  padding: 1px 9px; border-radius: 999px; line-height: 1.6;
+}
+.meta-chip.mat { border-color: rgba(255,255,255,.6); font-weight: 600; }
+.title-info { max-width: 820px; margin: 2px 0 24px; padding: 0 2px; }
+.title-overview { font-size: 15px; line-height: 1.6; color: var(--text); margin: 0 0 12px; }
+.title-people { font-size: 13.5px; color: var(--muted); margin-top: 4px; }
+.title-people .tp-label { color: var(--text); font-weight: 600; margin-right: 5px; }
+.title-info .tmdb-attrib { margin-top: 14px; }
+/* episode rows: top-align (synopsis can wrap to two lines) + a TMDB synopsis line */
+.ep-row { align-items: flex-start; }
+.ep-overview {
+  color: var(--muted); font-size: 13px; line-height: 1.45; margin: 6px 0 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
 /* ---- preview-on-hover (storyboard frames cycled over the thumbnail) ---- */
 .thumb .hover-prev {
   position: absolute; inset: 0; z-index: 4; background-repeat: no-repeat; background-position: center;
@@ -1797,3 +2036,101 @@ body[data-size="large"] .title-grid { grid-template-columns: repeat(auto-fill, m
 .reco-exp-items li { display: flex; justify-content: space-between; gap: 1rem;
   font-size: 13px; border-bottom: 1px solid var(--line); padding-bottom: .25rem; }
 .reco-exp-why { white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------
+   10-foot "TV mode" — a bigger interface + a prominent focus ring for arrow-key
+   / D-pad navigation from the couch (see tv.js). Everything is scoped to
+   body.tv-mode, so the default desktop experience is byte-for-byte unchanged.
+   --------------------------------------------------------------------------- */
+body.tv-mode { font-size: 17px; }
+body.tv-mode .topbar { padding-top: 6px; padding-bottom: 6px; }
+body.tv-mode .title-card, body.tv-mode .video-card, body.tv-mode .folder-card { cursor: pointer; }
+/* The focus ring — high-contrast, generous, never clipped by the card itself. */
+body.tv-mode :focus { outline: none; }
+body.tv-mode .title-card:focus-visible, body.tv-mode .video-card:focus-visible,
+body.tv-mode .folder-card:focus-visible, body.tv-mode .ep-row:focus-visible,
+body.tv-mode .collection-card:focus-visible, body.tv-mode .profile-card:focus-visible,
+body.tv-mode a:focus-visible, body.tv-mode button:focus-visible,
+body.tv-mode input:focus-visible, body.tv-mode select:focus-visible,
+body.tv-mode [tabindex]:focus-visible,
+/* Programmatic .focus() lands as :focus; mirror the ring so card nav is always visible. */
+body.tv-mode .title-card:focus, body.tv-mode .video-card:focus,
+body.tv-mode .folder-card:focus, body.tv-mode .ep-row:focus,
+body.tv-mode .collection-card:focus, body.tv-mode .profile-card:focus {
+  outline: 4px solid var(--orange);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px rgba(244, 140, 55, .22);
+  border-radius: var(--radius);
+  position: relative; z-index: 2;
+}
+/* Bump the touch targets a touch — comfortable from across the room. */
+body.tv-mode .player-controls .ctrl { transform: scale(1.08); }
+body.tv-mode .btn { padding-top: 11px; padding-bottom: 11px; }
+
+/* ===================== first-run taste picker (onboard.js) ===================== */
+.onboard-overlay {
+  position: fixed; inset: 0; z-index: 410; padding: 24px;
+  display: grid; place-items: center; overflow: auto;
+  background-image: radial-gradient(120% 90% at 80% 8%, rgba(255,255,255,.18), transparent 55%), var(--grad);
+}
+.onboard-card {
+  width: 100%; max-width: 640px; background: var(--surface); border-radius: 10px;
+  padding: 34px 32px; box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column; gap: 14px; text-align: center;
+}
+.onb-brand { font-size: 22px; font-weight: 700; color: var(--orange); text-transform: lowercase; letter-spacing: .2px; }
+.onb-h { margin: 0; font-size: 26px; font-weight: 700; color: var(--ink-900); }
+.onb-sub { margin: 0 auto; max-width: 460px; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+.onb-chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 8px 0 4px; }
+.onb-chip {
+  border: 1.5px solid var(--line); background: var(--surface-2); color: var(--ink-700);
+  border-radius: 999px; padding: 9px 16px; font: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: transform .08s ease, border-color .12s ease, background .12s ease, color .12s ease;
+}
+.onb-chip:hover { border-color: var(--ink-300); transform: translateY(-1px); }
+.onb-chip.on { background: var(--grad); border-color: transparent; color: #fff; box-shadow: 0 4px 12px rgba(234,92,32,.32); }
+.onb-actions { display: flex; gap: 10px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+.onb-actions .btn { padding: 11px 20px; }
+
+/* ===================== empty-library discovery home (discover.js) ===================== */
+.discover-section { display: block; }
+.discover-intro {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 18px;
+  flex-wrap: wrap; margin: 6px 0 22px;
+}
+.discover-intro-text h1 { margin: 0 0 4px; font-size: 30px; font-weight: 700; color: var(--ink-900); letter-spacing: -.4px; }
+.discover-intro-text p { margin: 0; max-width: 620px; font-size: 14.5px; line-height: 1.5; }
+.discover-intro-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.discover-intro-actions .btn svg { width: 17px; height: 17px; }
+/* The discover billboard reuses the home-hero machinery; it just can't be played. */
+.discover-hero { margin-bottom: 30px; }
+.discover-hero .hero-backdrop.noimg { background: var(--grad); }
+
+/* ===================== storage panel (settings.js) ===================== */
+.storage-control { display: flex; flex-direction: column; gap: 16px; }
+.stor-drives { display: flex; flex-direction: column; gap: 12px; }
+.stor-drive-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.stor-drive-name { font-weight: 600; color: var(--ink-900); font-size: 14px; }
+.stor-bar { height: 9px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.stor-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--grad); }
+.stor-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.stor-tile {
+  display: flex; align-items: center; gap: 11px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+}
+.stor-ic { width: 20px; height: 20px; color: var(--orange); flex: none; }
+.stor-ic svg { width: 20px; height: 20px; }
+.stor-num { font-size: 18px; font-weight: 700; color: var(--ink-900); line-height: 1.1; }
+.stor-lbl { line-height: 1.25; }
+.stor-job { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--ink-700); font-weight: 500; margin: 0; }
+.stor-spin {
+  width: 14px; height: 14px; flex: none; border-radius: 50%;
+  border: 2px solid rgba(238,103,34,.25); border-top-color: var(--orange);
+  animation: stor-spin .8s linear infinite;
+}
+@keyframes stor-spin { to { transform: rotate(360deg); } }
+.stor-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.stor-actions .btn svg { width: 16px; height: 16px; }
+
+/* People list: the account timestamps the backend already tracks. */
+.user-id .user-seen { display: block; margin-top: 1px; }

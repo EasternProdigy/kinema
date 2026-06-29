@@ -6,6 +6,71 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **10-foot TV mode — drive Kadmu with a remote.** A bigger interface plus **arrow-key /
+  D-pad spatial navigation**: arrows move a high-contrast focus ring to the nearest card or
+  button, Enter opens it; inside the player the existing arrow shortcuts (seek / volume) keep
+  working and Enter toggles play. Toggle it from *Settings → On a TV or big screen*, press
+  **`V`** anytime, or boot a couch/set-top install straight into it with **`--tv`** (`KADMU_TV`).
+  Pure client-side, off by default — the desktop UI is unchanged.
+- **Chromecast — cast to the TV (opt-in).** A cast button in the player sends the current
+  video to a Chromecast on your LAN (the device pulls the bytes straight from your node, so it's
+  $0-egress, same as DLNA). **Off by default** and gated behind **`--cast`** (`KADMU_CAST`): it's
+  the one feature that loads a third-party script (Google's Cast SDK), so the app-shell CSP is
+  relaxed for `gstatic.com` *only* when it's enabled — the default install never reaches out.
+  Works best on an open (no-password) LAN reached by its network address; **DLNA stays the
+  privacy-pure path**, and casting needs Chrome/Edge.
+- **Deinterlace (yadif).** A *Deinterlace* toggle in the player's **Tune** sheet smooths
+  combing on interlaced sources (ripped DVDs, broadcast/TV captures). It runs server-side via
+  ffmpeg, so it forces a live pass even on an otherwise-native file; rides the existing
+  stream/transcode pipeline (and so the parental-controls gate). Per-clip; needs ffmpeg.
+- **Trailers.** Titles matched to TMDB get a **Trailer** button that plays the trailer in an
+  **in-app lightbox** — a privacy-enhanced YouTube (`youtube-nocookie`) embed that needs an
+  internet connection. Nothing loads until you click (the button only exists with the optional
+  TMDB layer on), and closing the lightbox clears the player and ends contact with YouTube — so
+  the default is still no passive phone-home. Rides the existing opt-in TMDB layer.
+- **Collections / franchises.** A movie that's part of a TMDB collection shows a **"More from
+  this collection"** rail of the *other titles you own* in that franchise, oldest-first and
+  parental-gated. **No extra API call** — the collection link rides along in metadata you already
+  cache.
+- **Skip credits.** Mirroring Skip intro: a **Skip credits** button appears during a closing-
+  credits / ending chapter (when the file is chaptered and names it) and jumps past them — straight
+  to the next episode if the credits run to the very end.
+- **Adaptive-bitrate streaming (HLS) — the player's "Auto" quality.** Smooth playback on
+  mobile, remote, and flaky connections: the player picks the right rung of the quality ladder
+  and switches as your bandwidth changes, instead of locking to one resolution. It's **on-demand**
+  — no pre-processing; the playlist is computed from the file's duration and each segment is
+  transcoded (and cached) only when fetched, carrying the **same parental-controls gate** as
+  normal playback. Uses native HLS on Safari/iOS, and the vendored **hls.js** (loaded lazily, only
+  when Auto is selected) on Firefox/Chrome; anything unsupported falls back to a fixed quality.
+- **Household mode — `--accounts` + `--profiles` together.** One household login can now hold
+  multiple **sub-profiles** (the Netflix model: sign in once, then pick who's watching). The
+  account's own data stays exactly as it was (the "Me" profile, in SQLite); each sub-profile keeps
+  its **own resume, My List, ratings, and parental limits** in JSON under `data/accounts/<id>/` —
+  so **nothing in the existing accounts database changes** (no migration, no risk). A "Who's
+  watching?" chooser appears after login, with the usual maturity ceiling / library scope / PIN per
+  sub-profile. Either flag alone behaves exactly as before.
+- **Per-profile / per-user library scoping.** Restrict which library folders a profile (or, in
+  accounts mode, a user) can see — e.g. a kids profile that only ever sees the *Cartoons* folder.
+  Enforced everywhere the parental gate is (browse, search, the home rails, and a hard **403** on
+  playback of an out-of-scope file), and it works **with or without TMDB** (it's independent of
+  ratings). Set it per row in *Settings → Parental controls*; an empty selection means "all".
+- **Parental controls — kids-safe profiles.** Set a **maturity ceiling** per viewer and Kadmu
+  hides, won't open, and **won't play** anything above it. Each title's level comes from its
+  TMDB content rating (G/PG/PG-13/R · TV-Y…TV-MA), cached with the rest of the metadata — **no
+  new outbound call, no new cost**. Enforced server-side across **every surface** — the catalog,
+  search, the home rails (Continue / Recently added / recommendations), My List, the title page,
+  and a hard **403 on the stream/transcode** endpoints — so a restricted title can't be browsed,
+  searched, clicked, or URL-hacked into playing. In **profiles** mode each profile gets a ceiling
+  + an optional **PIN** to enter it (the family model); in **accounts** mode an admin sets each
+  user's ceiling. Set it in *Settings → Parental controls*. Unrated titles are hidden from kids
+  by default (safer).
+- **Discovery polish — browse like a streaming service.** The Shows/Movies catalog gains a
+  **browse-by-genre + filter bar** (genre · decade · sort by A–Z/recent/top-rated/newest ·
+  watched/unwatched), a **"Top 10 in your library"** rail (ranked by popularity), and a
+  **"Recently watched"** rail (your finished titles, episodes rolled up to their show). All
+  built from data Kadmu already holds — the TMDB enrichment caches + your resume table — so
+  **no new outbound call and no new cost**; it degrades gracefully (decade/sort/history still
+  work with TMDB off, genre/Top-10 light up when it's on).
 - **Play on the TV — DLNA / UPnP MediaServer (`--dlna`).** Kadmu now advertises itself on
   your network so **smart TVs, PlayStation/Xbox, and most media players discover it and play
   your library natively** — no app to install, and the TV's own decoder handles mkv/HEVC/AC3 a

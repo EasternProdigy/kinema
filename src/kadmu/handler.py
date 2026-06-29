@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import queue
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -13,24 +14,26 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import archive, cloud, dlna, ops, rt, sources
+from . import archive, cloud, dlna, discovery, hls, ops, rt, sources
 from .const import (
-    APP_NAME, APP_VERSION, FFMPEG, MIME, MP4_COPY_ACODECS, MP4_COPY_VCODECS,
-    NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES, REQUEST_TIMEOUT, SESSIONS,
-    SESSIONS_LOCK, SUBTITLE_EXTS, TRANSCODE_LADDER, WEB_DIR, _REQ, _io_lock,
-    _stream_sem, load_json, save_json,
+    APP_NAME, APP_VERSION, FFMPEG, MATURITY_LEVELS, MATURITY_MAX, MIME,
+    MP4_COPY_ACODECS, MP4_COPY_VCODECS, NATIVE_EXTS, PLAYLISTS_PATH, PUBLIC_ROUTES,
+    REQUEST_TIMEOUT, SESSIONS, SESSIONS_LOCK, SUBTITLE_EXTS, TRANSCODE_LADDER,
+    WEB_DIR, _REQ, _io_lock, _stream_sem, load_json, save_json,
 )
 from .accounts import (
     CLEAR_COOKIE, _current_uid, _db, _meta_set, _pw_check, _session_cookie,
     auth_user, create_user, db_logout, db_logout_user_sessions, db_new_session,
     db_playlists_get, db_playlists_set, db_prefs_get, db_prefs_set, db_session_user,
-    delete_user, get_user, get_user_by_name, list_users, set_user_password,
-    set_user_role, signup_open, user_count,
+    delete_user, get_user, get_user_by_name, list_users, set_user_maturity,
+    set_user_password, set_user_role, set_user_roots, signup_open, user_count,
 )
 from .store import (
-    _profile_slug, clear_progress, create_profile, get_config, list_profiles,
-    load_progress, my_list_items, my_list_set, owning_root, resolve_within_roots,
-    set_config, set_progress, set_rating,
+    _profile_slug, clear_progress, create_profile, delete_profile, get_config,
+    is_onboarded, list_profiles, load_progress, load_view_prefs, my_list_items,
+    my_list_set, owning_root, preferred_genres, profile_settings, real_roots,
+    resolve_within_roots, save_view_prefs, set_config, set_genre_prefs,
+    set_profile_settings, set_progress, set_rating, verify_profile_pin, viewer_roots,
 )
 from .catalog import build_catalog, title_detail
 from .recommend import recommend_for_viewer, reco_config, set_reco_weights
@@ -71,7 +74,21 @@ STATIC_FILES = {
 CSP = ("default-src 'self'; img-src 'self' data:; media-src 'self'; "
        "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; "
        "font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
+       # Trailers play in an in-app lightbox via a YouTube embed (privacy-enhanced
+       # youtube-nocookie). This only PERMITS the iframe — nothing loads until the user
+       # clicks Trailer (which exists only when the optional TMDB layer is on), so the
+       # default is still no passive phone-home.
+       "frame-src https://www.youtube-nocookie.com https://www.youtube.com; "
        "form-action 'self'")
+# Chromecast (opt-in --cast only): the Cast sender SDK is served from Google's gstatic
+# CDN — the one place we ever allow a third-party script. The relaxation is applied
+# solely when rt.CAST is on, so the default app shell keeps the strict 'self'-only CSP.
+CSP_CAST = (CSP.replace("script-src 'self'", "script-src 'self' https://www.gstatic.com")
+               .replace("connect-src 'self'", "connect-src 'self' https://www.gstatic.com"))
+
+
+def _app_csp():
+    return CSP_CAST if rt.CAST else CSP
 
 # Phase 5 — CDN cache-busting (only active when rt.CDN, i.e. the hosted edition behind a CDN).
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
@@ -339,13 +356,15 @@ class Handler(BaseHTTPRequestHandler):
             _stream_sem.release()
             ops.stream_release(ident)
 
-    def _stream_remux(self, path: Path, start: float, audio: int = 0):
+    def _stream_remux(self, path: Path, start: float, audio: int = 0, deint: bool = False):
         """Make a non-native file (an .mkv, or HEVC/x265 inside an .mp4, …) playable
         live, beginning at `start` seconds. Stream-copies the video and audio when
         they're already codecs MP4 can carry in the browser (fast, lossless) and
         transcodes to H.264/AAC only what isn't — at the source resolution, so this
         is 'Original' quality. `audio` selects which audio track to include (its
-        ordinal among the file's audio streams). Seeking re-requests with a new `t`."""
+        ordinal among the file's audio streams). `deint` applies a yadif deinterlace
+        filter — which forces a video re-encode (you can't copy a filtered stream).
+        Seeking re-requests with a new `t`."""
         if not FFMPEG:
             return self._send_json({"error": "Can't prepare this video (ffmpeg unavailable)."}, 415)
         meta = probe_meta(path)
@@ -358,21 +377,22 @@ class Handler(BaseHTTPRequestHandler):
             ac = (sel.get("codec") or "").lower()
         else:
             ac = (meta.get("acodec") or "").lower()
-        if vc and vc in MP4_COPY_VCODECS:
+        vf = ["-vf", "yadif"] if deint else []   # deinterlace forces a re-encode below
+        if vc and vc in MP4_COPY_VCODECS and not deint:
             v_args = ["-c:v", "copy"]            # already MP4-friendly: no re-encode
         else:
             enc = _h264_encoder()                # libx264, or libopenh264 where x264 is absent
             if not enc:
                 return self._send_json({"error": "No H.264 encoder available to convert this video."}, 415)
             if enc == "libx264":
-                v_args = ["-c:v", enc, "-preset", "veryfast", "-tune", "zerolatency",
+                v_args = ["-c:v", enc, *vf, "-preset", "veryfast", "-tune", "zerolatency",
                           "-crf", "23", "-pix_fmt", "yuv420p"]
             else:
                 # libopenh264 wants an explicit bitrate; scale it to the source height
                 h = meta.get("height") or 1080
                 br = next((TRANSCODE_LADDER[k][0] for k in sorted(TRANSCODE_LADDER) if h <= k),
                           TRANSCODE_LADDER[max(TRANSCODE_LADDER)][0])
-                v_args = ["-c:v", enc, "-b:v", br, "-maxrate", br, "-pix_fmt", "yuv420p"]
+                v_args = ["-c:v", enc, *vf, "-b:v", br, "-maxrate", br, "-pix_fmt", "yuv420p"]
         a_args = (["-c:a", "copy"] if (ac and ac in MP4_COPY_ACODECS)
                   else ["-c:a", "aac", "-b:a", "192k", "-ac", "2"])
         cmd = [FFMPEG, "-nostdin", "-ss", f"{max(0.0, start):.3f}", "-i", str(path),
@@ -382,16 +402,18 @@ class Handler(BaseHTTPRequestHandler):
         self._pipe_ffmpeg(cmd)
 
     # -- on-the-fly quality downscale, streamed live ------------------------ #
-    def _stream_transcode(self, path: Path, height: int, start: float, audio: int = 0):
+    def _stream_transcode(self, path: Path, height: int, start: float, audio: int = 0,
+                          deint: bool = False):
         """Downscale `path` to `height` lines and pipe it to the client live,
         beginning at `start` seconds. Like _stream_remux but always re-encodes to a
         smaller, lower-bitrate rendition (the quality picker). `audio` selects which
-        audio track to carry."""
+        audio track to carry; `deint` prepends a yadif deinterlace to the scale."""
         enc = _h264_encoder()
         if not FFMPEG or not enc or height not in TRANSCODE_LADDER:
             return self._send_json({"error": "unsupported quality"}, 400)
         bitrate, bufsize = TRANSCODE_LADDER[height]
-        v_args = ["-c:v", enc, "-vf", f"scale=-2:{height}",
+        vf = (f"yadif,scale=-2:{height}" if deint else f"scale=-2:{height}")
+        v_args = ["-c:v", enc, "-vf", vf,
                   "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", bufsize, "-pix_fmt", "yuv420p"]
         if enc == "libx264":
             v_args += ["-preset", "veryfast", "-tune", "zerolatency"]
@@ -583,7 +605,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_header("Cache-Control", "no-cache")
         if is_shell:
-            self.send_header("Content-Security-Policy", CSP)
+            self.send_header("Content-Security-Policy", _app_csp())
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
@@ -625,13 +647,22 @@ class Handler(BaseHTTPRequestHandler):
             "lan": rt.LAN_MODE,
             "canToggleLan": rt.LAN_TOGGLEABLE and manage,
             "canSetPassword": (not rt.ACCOUNTS_ENABLED) and (not rt.READONLY) and authed,
-            "profiles": rt.PROFILES_ENABLED and not rt.ACCOUNTS_ENABLED,
+            "profiles": rt.PROFILES_ENABLED,
+            "household": rt.ACCOUNTS_ENABLED and rt.PROFILES_ENABLED,
             "accounts": rt.ACCOUNTS_ENABLED,
             "tmdb": tmdb.enabled(),     # metadata layer on → discovery + sharper recs
             "dlna": rt.DLNA,            # UPnP/DLNA MediaServer advertised for TVs/consoles
             "dlnaName": dlna.friendly_name() if rt.DLNA else "",
+            "tv": rt.TV,                # default the UI into 10-foot mode (--tv)
+            "cast": rt.CAST,            # Chromecast sender enabled (--cast); loads Google's SDK
             "user": None, "role": None,
         }
+        # parental controls: the active viewer's maturity ceiling (+ the level labels
+        # so the settings UI can render the picker). MATURITY_MAX = no restriction.
+        ceiling, _hide = discovery.viewer_ceiling()
+        st["maturity"] = ceiling
+        st["kid"] = ceiling < MATURITY_MAX
+        st["maturityLevels"] = MATURITY_LEVELS
         if rt.ACCOUNTS_ENABLED:
             u = self._resolve_user()
             st["user"] = u
@@ -642,6 +673,49 @@ class Handler(BaseHTTPRequestHandler):
         if rt.CLOUD_ENABLED:
             st["entitlement"] = cloud.entitlement_state()
         return st
+
+    # -- storage overview (Settings → Storage) ------------------------------ #
+    def _storage_overview(self):
+        """Consolidated storage view: free space per drive, what archiving has
+        reclaimed (+ any live job), the trash, remote-source count and catalog size.
+        Cheap — disk_usage is O(1) per filesystem; the trash/archive reads are small,
+        and the catalog index is already built."""
+        # One entry per distinct filesystem the library roots live on, so two roots on
+        # the same drive don't double-count its free space.
+        drives, by_dev = [], {}
+        for r in viewer_roots():
+            try:
+                dev = r.stat().st_dev
+            except OSError:
+                continue
+            if dev in by_dev:
+                by_dev[dev]["roots"].append(r.name)
+                continue
+            try:
+                u = shutil.disk_usage(str(r))
+            except OSError:
+                continue
+            entry = {"roots": [r.name], "path": str(r),
+                     "total": u.total, "used": u.used, "free": u.free}
+            by_dev[dev] = entry
+            drives.append(entry)
+        a = archive.status()
+        totals = a.get("totals") or {}
+        arch = {
+            "available": a.get("available", False),
+            "codec": a.get("codec", ""), "encoder": a.get("encoder", ""),
+            "keepOriginal": a.get("keepOriginal", ""),
+            "filesArchived": totals.get("filesArchived", 0),
+            "bytesSaved": totals.get("bytesSaved", 0),
+            "active": a.get("active"), "queue": len(a.get("queue") or []),
+        }
+        cat = build_catalog()
+        counts = ({"shows": len(cat.get("shows", [])), "movies": len(cat.get("movies", []))}
+                  if cat.get("ready") else {"shows": 0, "movies": 0})
+        return {
+            "drives": drives, "archive": arch, "trash": trash_info(),
+            "sources": len(sources.list_sources()), "catalog": counts,
+        }
 
     # -- per-request viewer profile (opt-in) -------------------------------- #
     def _set_profile(self):
@@ -910,30 +984,37 @@ class Handler(BaseHTTPRequestHandler):
             path = resolve_within_roots(raw_path)
             if not path or not path.is_file():
                 return self._send_json({"error": "not found"}, 404)
+            if not discovery.path_allowed(str(path)):     # parental controls: hard play gate
+                return self._send_json({"error": "Restricted by parental controls.",
+                                        "restricted": True}, 403)
             ext = path.suffix.lower()
             try:
                 audio = max(0, int(qs.get("audio", ["0"])[0]))   # selected audio track ordinal
             except (TypeError, ValueError):
                 audio = 0
+            deint = qs.get("deint", ["0"])[0] == "1"             # yadif deinterlace (Tune toggle)
             # A native, browser-decodable file is served straight off disk (fully
-            # byte-seekable) — unless the viewer picked a non-default audio track,
-            # which requires a remux to swap the active stream.
-            if ext in NATIVE_EXTS and browser_playable(path) and audio == 0:
+            # byte-seekable) — unless the viewer picked a non-default audio track or
+            # asked to deinterlace, either of which needs a live ffmpeg pass.
+            if ext in NATIVE_EXTS and browser_playable(path) and audio == 0 and not deint:
                 return self._serve_file_with_range(path, MIME.get(ext, "application/octet-stream"))
             # non-native container (.mkv …) OR a native container whose codec the
             # browser can't decode (e.g. HEVC/x265 inside an .m4v) OR a swapped audio
-            # track: pipe it live, remuxing/transcoding on the fly so playback starts
-            # in ~1-2s. Not byte-seekable; the player re-requests with `t` to seek.
+            # track OR deinterlace: pipe it live, remuxing/transcoding on the fly so
+            # playback starts in ~1-2s. Not byte-seekable; the player re-requests `t` to seek.
             try:
                 start = float(qs.get("t", ["0"])[0])
             except (TypeError, ValueError):
                 start = 0.0
-            return self._stream_remux(path, max(0.0, start), audio)
+            return self._stream_remux(path, max(0.0, start), audio, deint=deint)
 
         if route == "/api/transcode":
             path = resolve_within_roots(unquote(qs.get("path", [""])[0]))
             if not path or not path.is_file():
                 return self._send_json({"error": "not found"}, 404)
+            if not discovery.path_allowed(str(path)):     # parental controls
+                return self._send_json({"error": "Restricted by parental controls.",
+                                        "restricted": True}, 403)
             try:
                 height = int(qs.get("height", ["0"])[0])
             except (TypeError, ValueError):
@@ -948,19 +1029,69 @@ class Handler(BaseHTTPRequestHandler):
                 audio = max(0, int(qs.get("audio", ["0"])[0]))
             except (TypeError, ValueError):
                 audio = 0
-            return self._stream_transcode(path, height, start, audio)
+            deint = qs.get("deint", ["0"])[0] == "1"
+            return self._stream_transcode(path, height, start, audio, deint=deint)
+
+        # Adaptive-bitrate HLS (the "Auto" quality). Playlists are computed; segments
+        # are transcoded on demand + cached. Same parental-controls gate as /api/stream.
+        if route in ("/api/hls/master.m3u8", "/api/hls/media.m3u8", "/api/hls/seg.ts"):
+            path = resolve_within_roots(unquote(qs.get("path", [""])[0]))
+            if not path or not path.is_file():
+                return self._send_json({"error": "not found"}, 404)
+            if not discovery.path_allowed(str(path)):
+                return self._send_json({"error": "Restricted by parental controls.",
+                                        "restricted": True}, 403)
+            if route == "/api/hls/master.m3u8":
+                pl = hls.master(path)
+                if pl is None:
+                    return self._send_json({"error": "unavailable"}, 415)
+                return self._send_bytes(pl.encode("utf-8"), "application/vnd.apple.mpegurl", cache=False)
+            try:
+                height = int(qs.get("height", ["0"])[0])
+            except (TypeError, ValueError):
+                return self._send_json({"error": "bad height"}, 400)
+            if route == "/api/hls/media.m3u8":
+                pl = hls.media(path, height)
+                if pl is None:
+                    return self._send_json({"error": "unavailable"}, 415)
+                return self._send_bytes(pl.encode("utf-8"), "application/vnd.apple.mpegurl", cache=False)
+            try:
+                i = int(qs.get("i", ["-1"])[0])
+            except (TypeError, ValueError):
+                return self._send_json({"error": "bad segment"}, 400)
+            data = hls.segment(path, height, i)
+            if data is None:
+                return self._send_json({"error": "not found"}, 404)
+            return self._send_bytes(data, "video/mp2t", cache=True)
 
         if route == "/api/progress":
             return self._send_json(load_progress())
 
         if route == "/api/continue":
-            return self._send_json(continue_watching())
+            gate = discovery.play_gate()          # parental controls
+            return self._send_json([it for it in continue_watching() if gate(it.get("path", ""))])
 
         if route == "/api/home":
-            return self._send_json(home_feed())
+            data = home_feed()
+            gate = discovery.play_gate()          # parental controls
+            if isinstance(data, dict):
+                if isinstance(data.get("recent"), list):
+                    data["recent"] = [it for it in data["recent"] if gate(it.get("path", ""))]
+                if data.get("hero") and not gate((data["hero"] or {}).get("path", "")):
+                    data["hero"] = None
+            return self._send_json(data)
 
         if route == "/api/catalog":
-            return self._send_json(build_catalog())
+            # overlay TMDB facets (genre/year/rating/popularity), then drop anything
+            # above the active viewer's parental-controls ceiling
+            return self._send_json(discovery.filter_maturity(discovery.attach_facets(build_catalog())))
+
+        if route == "/api/history":
+            try:
+                limit = max(1, min(200, int(qs.get("limit", ["80"])[0])))
+            except (TypeError, ValueError):
+                limit = 80
+            return self._send_json({"items": discovery.watch_history(limit)})
 
         if route == "/api/archive":
             return self._send_json(archive.status())
@@ -977,7 +1108,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(data)
 
         if route == "/api/recommendations":
-            return self._send_json(recommend_for_viewer())
+            data = recommend_for_viewer()
+            gate = discovery.play_gate()          # parental controls
+            restricted = discovery.viewer_ceiling()[0] < MATURITY_MAX
+            for row in (data.get("rows", []) if isinstance(data, dict) else []):
+                kept = []
+                for it in row.get("items", []):
+                    if it.get("external"):
+                        if not restricted:        # can't verify an unowned title's rating → hide from kids
+                            kept.append(it)
+                    elif gate(it.get("id") or it.get("path", "")):
+                        kept.append(it)
+                row["items"] = kept
+            if isinstance(data, dict):
+                data["rows"] = [r for r in data.get("rows", []) if r.get("items")]
+            return self._send_json(data)
 
         if route == "/api/reco/config":
             return self._send_json(reco_config())
@@ -1002,8 +1147,30 @@ class Handler(BaseHTTPRequestHandler):
             detail = title_detail(unquote(raw))
             if detail is None:
                 return self._send_json({"error": "not found"}, 404)
+            # parental controls: don't reveal a restricted title's episodes/play target
+            if not discovery.title_allowed(detail["id"]):
+                return self._send_json({"id": detail["id"], "kind": detail.get("kind"),
+                                        "name": detail.get("name"), "restricted": True})
+            discovery.attach_title_detail(detail)      # TMDB synopsis / cast / cover art
             detail["archive"] = archive.title_archive_state(detail["id"])
             return self._send_json(detail)
+
+        if route == "/api/episodes":
+            raw = qs.get("id", [None])[0]
+            if not raw:
+                return self._send_json({"error": "missing id"}, 400)
+            sid = unquote(raw)
+            # scope to an owned show folder, and respect parental controls
+            target = resolve_within_roots(sid, must_exist=True)
+            if target is None or not target.is_dir():
+                return self._send_json({"error": "not found"}, 404)
+            if not discovery.title_allowed(sid):
+                return self._send_json({"episodes": {}, "restricted": True})
+            try:
+                season = int(qs.get("season", ["0"])[0])
+            except (TypeError, ValueError):
+                season = 0
+            return self._send_json(enrich.season_episodes(sid, season))
 
         if route == "/api/party/state":
             snap = room_snapshot(qs.get("code", [""])[0])
@@ -1015,14 +1182,47 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_party_events(qs.get("code", [""])[0])
 
         if route == "/api/search":
-            return self._send_json(search_library(unquote(qs.get("q", [""])[0])))
+            res = search_library(unquote(qs.get("q", [""])[0]))
+            gate = discovery.play_gate()          # parental controls
+            if isinstance(res, dict):
+                for key in ("folders", "videos"):
+                    if isinstance(res.get(key), list):
+                        res[key] = [it for it in res[key] if gate(it.get("path", ""))]
+            return self._send_json(res)
+
+        if route == "/api/search/external":
+            q = unquote(qs.get("q", [""])[0])
+            items = enrich.search_external(q) if discovery.external_suggestions_ok() else []
+            return self._send_json({"items": items})
+
+        if route == "/api/genres":
+            # the genre list for the first-run taste picker (merged movie + TV), plus
+            # whatever this viewer already picked. Empty when the metadata layer is off.
+            return self._send_json({
+                "enabled": tmdb.enabled(),
+                "genres": tmdb.genres_combined() if tmdb.enabled() else [],
+                "selected": preferred_genres(),
+            })
+
+        if route == "/api/discover":
+            # rows of titles you DON'T own — the empty-library home + "more to watch".
+            # Seeded by the viewer's picked genres; off for maturity-restricted viewers
+            # (unowned titles carry no certification to filter on) and without a key.
+            ok = discovery.external_suggestions_ok()
+            data = enrich.discover_catalog(preferred_genres()) if ok else {"enabled": tmdb.enabled(), "rows": [], "genres": []}
+            data["ok"] = ok
+            data["onboarded"] = is_onboarded()
+            return self._send_json(data)
 
         if route == "/api/mylist":
-            return self._send_json(my_list_items())
+            gate = discovery.play_gate()          # parental controls
+            return self._send_json([it for it in my_list_items() if gate(it.get("path", ""))])
 
         if route == "/api/profiles":
-            return self._send_json({"enabled": rt.PROFILES_ENABLED,
-                                    "profiles": list_profiles() if rt.PROFILES_ENABLED else []})
+            profs = list_profiles() if rt.PROFILES_ENABLED else []
+            # fold in each profile's parental-controls settings (maturity/kid/pin-set)
+            profs = [dict(p, **profile_settings(p["id"])) for p in profs]
+            return self._send_json({"enabled": rt.PROFILES_ENABLED, "profiles": profs})
 
         if route == "/api/users":
             if not rt.ACCOUNTS_ENABLED:
@@ -1065,15 +1265,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(load_json(PLAYLISTS_PATH, {}))
 
         if route == "/api/prefs":
-            # per-user preferences (accounts mode); empty otherwise (the client keeps
-            # its own prefs in localStorage when there are no accounts).
-            if rt.ACCOUNTS_ENABLED:
-                uid = _current_uid()
-                return self._send_json(db_prefs_get(uid) if uid else {})
-            return self._send_json({})
+            # per-viewer preferences (genres, onboarding, mirrored display prefs).
+            # Server-backed in both modes now: per-user in accounts mode, a profile-
+            # scoped JSON file otherwise (so taste picks survive a new device).
+            return self._send_json(load_view_prefs())
 
         if route == "/api/trash":
             return self._send_json(trash_info())
+
+        if route == "/api/storage":
+            return self._send_json(self._storage_overview())
 
         return self._send_json({"error": "not found"}, 404)
 
@@ -1088,9 +1289,22 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_body()
 
         if route == "/api/profiles":
-            # create (or look up) a viewer profile; selection itself is client-side
+            # create a profile, set a profile's parental controls, or verify a PIN to
+            # enter one. Profiles are a family trust model (no inter-profile auth).
             if not rt.PROFILES_ENABLED:
                 return self._send_json({"ok": False, "error": "Profiles are disabled."}, 400)
+            action = body.get("action")
+            if action == "settings":
+                ok = set_profile_settings(_profile_slug(str(body.get("id", ""))),
+                                          maturity=body.get("maturity"), kid=body.get("kid"),
+                                          pin=body.get("pin"), roots=body.get("roots"))
+                return self._send_json({"ok": ok})
+            if action == "verify":
+                ok = verify_profile_pin(_profile_slug(str(body.get("id", ""))), str(body.get("pin", "")))
+                return self._send_json({"ok": ok})
+            if action == "delete":
+                ok = delete_profile(str(body.get("id", "")))
+                return self._send_json({"ok": ok, "profiles": list_profiles()})
             prof = create_profile(str(body.get("name", "")))
             return self._send_json({"ok": True, "profile": prof, "profiles": list_profiles()})
 
@@ -1222,6 +1436,10 @@ class Handler(BaseHTTPRequestHandler):
                 if uid == me["id"]:
                     return self._send_json({"ok": False, "error": "You can't delete yourself."}, 400)
                 ok, err = delete_user(uid)
+            elif action == "setMaturity":
+                ok, err = set_user_maturity(uid, body.get("maturity"))   # parental controls
+            elif action == "setRoots":
+                ok, err = set_user_roots(uid, body.get("roots") or [])    # library scoping
             else:
                 ok, err = False, "Unknown action."
             if not ok:
@@ -1335,13 +1553,18 @@ class Handler(BaseHTTPRequestHandler):
                                    extra_headers=extra)
 
         if route == "/api/prefs":
-            # per-user preferences blob (accounts mode); a no-op otherwise.
-            if rt.ACCOUNTS_ENABLED:
-                uid = _current_uid()
-                if uid:
-                    prefs = body.get("prefs")
-                    db_prefs_set(uid, prefs if isinstance(prefs, dict) else {})
+            # per-viewer preferences blob — MERGES (preserves keys this client didn't
+            # send, e.g. the genre picker's tastes vs. the player's caption prefs).
+            # Server-backed in both modes. Not a library write → allowed read-only.
+            prefs = body.get("prefs")
+            save_view_prefs(prefs if isinstance(prefs, dict) else {})
             return self._send_json({"ok": True})
+
+        if route == "/api/genres":
+            # save the viewer's first-run taste picks (+ mark onboarding done). A
+            # per-viewer pref, not a library write → allowed even read-only.
+            set_genre_prefs(body.get("genres") or [], onboarded=bool(body.get("onboarded", True)))
+            return self._send_json({"ok": True, "genres": preferred_genres()})
 
         # ---- everything below mutates the library: writable + (accounts) admin ---- #
         if route == "/api/config":

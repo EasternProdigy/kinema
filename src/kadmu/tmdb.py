@@ -138,12 +138,32 @@ def search(kind: str, query: str, year=None):
     return res if isinstance(res, list) else []
 
 
+def search_multi(query: str):
+    """Mixed movie + TV search (one round-trip). Returns the raw results list; each
+    item carries a `media_type` of movie / tv / person."""
+    if not query:
+        return []
+    data = _get("/search/multi", {"query": query, "include_adult": "false", "language": "en-US"})
+    if not isinstance(data, dict):
+        return []
+    res = data.get("results")
+    return res if isinstance(res, list) else []
+
+
 def details(kind: str, tmdb_id: int):
-    """Full detail for a movie/tv id, with keywords, credits, recommendations and
-    similar folded in (one round-trip). Returns the raw TMDB dict, or None."""
+    """Full detail for a movie/tv id, with keywords, credits, recommendations,
+    similar, and the content rating (release_dates / content_ratings, for parental
+    controls) folded in (one round-trip). Returns the raw TMDB dict, or None."""
+    append = "keywords,credits,recommendations,similar,videos,"
+    append += "release_dates" if kind == "movie" else "content_ratings"
     return _get(f"/{kind}/{int(tmdb_id)}",
-                {"append_to_response": "keywords,credits,recommendations,similar",
-                 "language": "en-US"})
+                {"append_to_response": append, "language": "en-US"})
+
+
+def season(tv_id: int, season_number: int):
+    """Full detail for one TV season — its episodes (name, overview, still, air date,
+    rating). One round-trip. Returns the raw TMDB dict, or None."""
+    return _get(f"/tv/{int(tv_id)}/season/{int(season_number)}", {"language": "en-US"})
 
 
 def genre_map(kind: str) -> dict:
@@ -162,6 +182,62 @@ def genre_map(kind: str) -> dict:
         if out:
             _genre_cache[kind] = out
     return out
+
+
+def genres_combined() -> list:
+    """A merged, de-duplicated genre list across movies + TV, each with the id to use
+    for a /discover query of either kind: [{"name", "movie": id|None, "tv": id|None}].
+    Movies and TV use different id spaces (and some genres only exist for one), so the
+    picker stores the *name* and we map back to the right id per kind. Sorted by name."""
+    mv = genre_map("movie")
+    tv = genre_map("tv")
+    merged: dict[str, dict] = {}
+    for gid, name in mv.items():
+        if name:
+            merged.setdefault(name, {"name": name, "movie": None, "tv": None})["movie"] = gid
+    for gid, name in tv.items():
+        if name:
+            merged.setdefault(name, {"name": name, "movie": None, "tv": None})["tv"] = gid
+    return sorted(merged.values(), key=lambda g: g["name"].lower())
+
+
+# --------------------------------------------------------------------------- #
+# Discovery — popular / trending / by-genre titles you may NOT own (for the
+# empty-library home + first-run genre picks). Best-effort; [] without a key.
+# --------------------------------------------------------------------------- #
+def discover(kind: str, with_genres=None, sort_by="popularity.desc",
+             page: int = 1, min_votes: int = 80) -> list:
+    """A page of /discover/{movie|tv} results. `with_genres` is an int id or a list
+    of ids (any-match). Filters out very-low-vote noise. Returns the raw results
+    list (each item carries genre_ids, poster_path, backdrop_path, …)."""
+    if kind not in ("movie", "tv"):
+        return []
+    params = {
+        "sort_by": sort_by, "include_adult": "false", "language": "en-US",
+        "page": str(max(1, min(500, int(page or 1)))),
+        "vote_count.gte": str(max(0, int(min_votes))),
+    }
+    if with_genres:
+        ids = with_genres if isinstance(with_genres, (list, tuple, set)) else [with_genres]
+        ids = [str(int(g)) for g in ids if g is not None]
+        if ids:
+            params["with_genres"] = ",".join(ids)
+    data = _get(f"/discover/{kind}", params)
+    if not isinstance(data, dict):
+        return []
+    res = data.get("results")
+    return res if isinstance(res, list) else []
+
+
+def trending(window: str = "week") -> list:
+    """The trending titles right now (mixed movie + TV; people filtered by callers).
+    `window` is 'day' or 'week'. Returns the raw results list."""
+    win = window if window in ("day", "week") else "week"
+    data = _get(f"/trending/all/{win}", {"language": "en-US"})
+    if not isinstance(data, dict):
+        return []
+    res = data.get("results")
+    return res if isinstance(res, list) else []
 
 
 # --------------------------------------------------------------------------- #

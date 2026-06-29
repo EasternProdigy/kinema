@@ -210,13 +210,18 @@ above.
   old `app.js` was split into **ordered classic `<script>` files** that share the global scope;
   `index.html` loads them in a fixed order and `main.js` boots last:
   `util → remote → icons → state → routing → library → home → manage → settings → accounts →
-  cloud → player → audio → filters → tune → playerui → party → palette → keys → main`.
+  cloud → player → adaptive → audio → filters → tune → playerui → party → palette → tv → cast →
+  keys → main`.
   (`audio`/`filters` = the Web-Audio graph + CSS video adjustments; `tune` = the player Tune
-  sheet that drives them; `party` = watch-party SSE client; `palette` = the `Ctrl/⌘+K` command
-  palette; `home` = the hero + recently-added rail + storyboard hover-preview; `cloud` = the
-  Phase-4a inactive-subscription overlay + `api()` 402 hook, a no-op unless cloud-attached;
-  `remote` = the Phase-4b P2P fetch proxy — loaded right after `util.js` so it can wrap `api()`
-  before any call, and inert unless a remote session is configured.) Because they're classic scripts,
+  sheet that drives them — incl. the **Deinterlace** (yadif) toggle; `party` = watch-party SSE
+  client; `palette` = the `Ctrl/⌘+K` command palette; `home` = the hero + recently-added rail +
+  storyboard hover-preview; `adaptive` = the HLS "Auto"-quality client (lazy hls.js); `tv` = the
+  10-foot **TV mode** — big UI + arrow-key/D-pad spatial navigation (off unless toggled / `--tv`);
+  `cast` = the opt-in **Chromecast** sender — inert unless `--cast`, the only loader of a 3rd-party
+  script (Google's Cast SDK); `cloud` = the Phase-4a inactive-subscription overlay + `api()` 402
+  hook, a no-op unless cloud-attached; `remote` = the Phase-4b P2P fetch proxy — loaded right after
+  `util.js` so it can wrap `api()` before any call, and inert unless a remote session is
+  configured.) Because they're classic scripts,
   top-level `const`/`function` in one file are visible to the others, so cross-file calls work
   unchanged — **the only constraints are load order (`util.js` defines `$` first; `main.js`'s
   init IIFE runs last) and declaring each name once.** If you add a file, add a `<script>` tag
@@ -296,11 +301,18 @@ janitor (`purge_trash(TRASH_TTL)`) and on demand via the `empty-trash` op.
 Flags: `[FOLDER ...]`, `--host`, `--port`, `--lan`, `--password`, `--read-only`, `--demo`,
 `--no-browse`, `--allowed-host` (repeatable), `--allow-any-host`, `--app`, `--kiosk`,
 `--no-open`, `--profiles`, `--accounts`, `--reset-password USERNAME`, `--tls CERT KEY`,
-`--log-requests`, `--no-rate-limit`, `--cloud URL`, `--tenant ID`, `--cdn`, `--version`.
+`--log-requests`, `--no-rate-limit`, `--dlna`, `--tv`, `--cast`, `--cloud URL`, `--tenant ID`,
+`--cdn`, `--version`.
 `--accounts` turns on multi-user accounts (SQLite); `--reset-password USERNAME` resets/creates
 that account as admin (using `KADMU_NEW_PASSWORD`, else a printed random one) and exits.
 `--tls CERT KEY` serves built-in HTTPS; `--log-requests` emits structured per-request JSON logs;
 `--no-rate-limit` disables the per-IP limiter.
+`--dlna` advertises a DLNA/UPnP MediaServer (play on the TV, LAN-local; implies `--lan`); `--tv`
+defaults the frontend into **10-foot TV mode** (bigger UI + arrow-key/D-pad navigation — also
+toggled with `V` / *Settings*); `--cast` enables the opt-in **Chromecast** sender — the *only*
+feature that loads a third-party script (Google's Cast SDK), so the app-shell CSP is relaxed for
+`gstatic.com` solely when it's on. All three are **off by default** and LAN-local (zero egress);
+DLNA stays the privacy-pure couch path.
 `--cloud URL` + `--tenant ID` (+ the secret in `KADMU_CLOUD_SECRET`) run the node **cloud-attached**
 as a Kadmu Cloud tenant — subscription-gated via `kadmu.cloud` (Phase 4a); all three absent ⇒
 plain self-host, fully unlocked.
@@ -314,7 +326,8 @@ Env equivalents read at startup: `KADMU_PASSWORD`, `KADMU_PORT`, `KADMU_READONLY
 **env-only**, never a CLI arg), `KADMU_LAUNCH_MODE` (`tab`/`app`/`kiosk`), `KADMU_CACHE_LIMIT_MB`,
 `KADMU_CACHE_TTL_SEC`, `KADMU_TRASH_TTL_DAYS` (auto-purge trash after N days; default 14),
 `KADMU_MAX_STREAMS` (concurrent live ffmpeg streams; default 5), `KADMU_INDEX_REFRESH_SEC`
-(background re-walk interval; default 300), `KADMU_ALLOWED_HOSTS`, `KADMU_FFMPEG`, `KADMU_FFPROBE`.
+(background re-walk interval; default 300), `KADMU_DLNA` / `KADMU_TV` / `KADMU_CAST`
+(`1`/`true`/`yes` ⇒ the matching opt-in flag), `KADMU_ALLOWED_HOSTS`, `KADMU_FFMPEG`, `KADMU_FFPROBE`.
 **Phase 3 ops:** `KADMU_TLS_CERT`/`KADMU_TLS_KEY` (built-in HTTPS), `KADMU_RATE_LIMIT` (0 to
 disable), `KADMU_RATE_RPS`/`KADMU_RATE_BURST` (per-IP token bucket; default 50/200),
 `KADMU_USER_MAX_STREAMS` (per-user/IP live-stream cap; default 3), `KADMU_REQUEST_TIMEOUT`

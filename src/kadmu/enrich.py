@@ -28,10 +28,11 @@ import time
 from . import tmdb
 from . import library
 from .catalog import build_catalog
-from .const import DATA_DIR, load_json, save_json
+from .const import DATA_DIR, CERT_MOVIE_LEVEL, CERT_TV_LEVEL, load_json, save_json
 
 MATCH_PATH = DATA_DIR / "catalog_match.json"
 CACHE_PATH = DATA_DIR / "tmdb_cache.json"
+EPISODES_PATH = DATA_DIR / "tmdb_episodes.json"   # per-season episode metadata, fetched lazily
 
 try:
     ENRICH_REFRESH = max(300, int(os.environ.get("KADMU_TMDB_REFRESH_SEC", "21600")))
@@ -70,6 +71,270 @@ def load_match() -> dict:
 def load_cache() -> dict:
     d = load_json(CACHE_PATH, {})
     return d if isinstance(d, dict) else {}
+
+
+def load_episodes() -> dict:
+    d = load_json(EPISODES_PATH, {})
+    return d if isinstance(d, dict) else {}
+
+
+# --------------------------------------------------------------------------- #
+# Per-season episode metadata — fetched lazily the first time a show's season is
+# opened on the detail page, then cached on disk (one TMDB round-trip per season).
+# --------------------------------------------------------------------------- #
+def _tv_id(card_id):
+    """The TMDB tv id a catalog card is matched to, or None if it isn't a TV match."""
+    key = match_key(load_match().get(card_id))
+    if not isinstance(key, str) or not key.startswith("tv:"):
+        return None
+    try:
+        return int(key.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return None
+
+
+def _compact_episode(ep):
+    name = (ep.get("name") or "").strip()
+    return {
+        "episode": ep.get("episode_number"),
+        "name": name,
+        "overview": (ep.get("overview") or "").strip(),
+        "still": tmdb.poster_url(ep.get("still_path"), "w185"),
+        "air_date": ep.get("air_date") or "",
+        "rating": round(float(ep.get("vote_average") or 0), 1) or None,
+        "runtime": ep.get("runtime"),
+    }
+
+
+def season_episodes(card_id, season_number):
+    """{'season': {...}, 'episodes': {epno: {...}}} of TMDB metadata for one season of a
+    matched show. Cached on disk; fetched once per (show, season). {} when there's no
+    TMDB match or the layer is off."""
+    if not tmdb.enabled():
+        return {}
+    tv = _tv_id(card_id)
+    if tv is None:
+        return {}
+    try:
+        season_number = int(season_number)
+    except (TypeError, ValueError):
+        return {}
+    ckey = f"tv:{tv}:s{season_number}"
+    cache = load_episodes()
+    hit = cache.get(ckey)
+    if isinstance(hit, dict):
+        return hit
+
+    raw = tmdb.season(tv, season_number)
+    if not isinstance(raw, dict):
+        return {}
+    episodes = {}
+    for ep in (raw.get("episodes") or []):
+        n = ep.get("episode_number")
+        if n is not None:
+            episodes[str(n)] = _compact_episode(ep)
+    out = {
+        "season": {
+            "name": (raw.get("name") or "").strip(),
+            "overview": (raw.get("overview") or "").strip(),
+            "poster": tmdb.poster_url(raw.get("poster_path"), "w342"),
+            "air_date": raw.get("air_date") or "",
+        },
+        "episodes": episodes,
+    }
+    with _write_lock:
+        cache = load_episodes()
+        cache[ckey] = out
+        save_json(EPISODES_PATH, cache)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# External title search — TMDB movies/shows you DON'T own, for the search bar.
+# Cached in memory (TTL) so type-ahead doesn't hammer the API. [] when TMDB off.
+# --------------------------------------------------------------------------- #
+_ext_search = {}                          # norm_query -> (ts, [items])
+_ext_search_lock = threading.Lock()
+_EXT_SEARCH_TTL = 1800.0
+
+
+def _owned_keys():
+    out = set()
+    for rec in load_match().values():
+        k = match_key(rec)
+        if k and k != "none":
+            out.add(k)
+    return out
+
+
+def search_external(query, limit=12):
+    """TMDB titles matching `query` that aren't in the library — for the search bar's
+    'not in your library' section. Cached; returns [] when the metadata layer is off."""
+    if not tmdb.enabled():
+        return []
+    q = (query or "").strip()
+    if len(q) < 2:
+        return []
+    nq = q.lower()
+    now = time.time()
+    with _ext_search_lock:
+        hit = _ext_search.get(nq)
+        if hit and now - hit[0] < _EXT_SEARCH_TTL:
+            return hit[1][:limit]
+    owned = _owned_keys()
+    out, seen = [], set()
+    for item in tmdb.search_multi(q):
+        mt = item.get("media_type")
+        if mt not in ("movie", "tv"):
+            continue
+        tid = item.get("id")
+        if tid is None:
+            continue
+        key = "%s:%s" % (mt, tid)
+        if key in owned or key in seen:
+            continue
+        title = item.get("title") or item.get("name") or ""
+        if not title:
+            continue
+        seen.add(key)
+        dt = item.get("release_date") or item.get("first_air_date") or ""
+        year = int(dt[:4]) if dt[:4].isdigit() else None
+        out.append({
+            "external": True, "id": key, "tmdb_id": tid,
+            "kind": "show" if mt == "tv" else "movie", "tmdbKind": mt,
+            "name": title, "year": year,
+            "poster": tmdb.poster_url(item.get("poster_path")),
+            "overview": (item.get("overview") or "").strip(),
+            "vote": round(float(item.get("vote_average") or 0), 1),
+            "popularity": float(item.get("popularity") or 0),
+            "tmdbUrl": "https://www.themoviedb.org/%s/%s" % (mt, tid),
+        })
+    out.sort(key=lambda x: x["popularity"], reverse=True)
+    with _ext_search_lock:
+        if len(_ext_search) > 300:
+            _ext_search.clear()
+        _ext_search[nq] = (now, out)
+    return out[:limit]
+
+
+# --------------------------------------------------------------------------- #
+# Discovery catalog — popular / trending / by-genre titles you DON'T own, for the
+# empty-library home and the taste-seeded "more to watch" rails. Built from TMDB's
+# discover/trending endpoints, excludes what you already have, cached in memory
+# (the genre selection rarely changes; a big page of rows is one TTL window).
+# --------------------------------------------------------------------------- #
+_discover_cache = {}                       # genre-key -> (ts, payload)
+_discover_lock = threading.Lock()
+_DISCOVER_TTL = 1800.0
+_DISCOVER_ROW = 18                         # titles per rail
+
+
+def _disc_stub(item, kind, gmaps, owned, seen):
+    """One external-suggestion stub from a TMDB discover/trending item, or None when
+    it's a person / already owned / a dupe / unusable. `kind` is forced for /discover
+    results (which carry no media_type); trending items carry their own."""
+    mt = kind or item.get("media_type")
+    if mt not in ("movie", "tv"):
+        return None
+    tid = item.get("id")
+    if tid is None:
+        return None
+    key = "%s:%s" % (mt, tid)
+    if key in owned or key in seen:
+        return None
+    title = item.get("title") or item.get("name") or ""
+    if not title:
+        return None
+    seen.add(key)
+    dt = item.get("release_date") or item.get("first_air_date") or ""
+    year = int(dt[:4]) if dt[:4].isdigit() else None
+    gmap = gmaps.get(mt) or {}
+    genres = [gmap.get(int(g)) for g in (item.get("genre_ids") or [])
+              if isinstance(g, int) and gmap.get(int(g))]
+    return {
+        "external": True, "id": key, "tmdb_id": tid,
+        "kind": "show" if mt == "tv" else "movie", "tmdbKind": mt,
+        "name": title, "year": year, "genres": genres,
+        "poster": tmdb.poster_url(item.get("poster_path")),
+        "backdrop": tmdb.poster_url(item.get("backdrop_path"), "w780"),
+        "overview": (item.get("overview") or "").strip(),
+        "vote": round(float(item.get("vote_average") or 0), 1),
+        "popularity": float(item.get("popularity") or 0),
+        "tmdbUrl": "https://www.themoviedb.org/%s/%s" % (mt, tid),
+    }
+
+
+def discover_catalog(genre_names=None, limit_per_row=_DISCOVER_ROW):
+    """Rows of TMDB titles you don't own — a streaming-style discover homepage for a
+    library that's empty (or just for "what should I get next"). When `genre_names`
+    is given (the viewer's picks), it leads with a rail per genre; otherwise it shows
+    trending + popular. Cached in memory (TTL); {} -> off when there's no TMDB key."""
+    if not tmdb.enabled():
+        return {"enabled": False, "rows": [], "genres": []}
+    names = [str(g) for g in (genre_names or []) if str(g).strip()][:6]
+    ckey = "|".join(sorted(n.lower() for n in names)) or "_default"
+    now = time.time()
+    with _discover_lock:
+        hit = _discover_cache.get(ckey)
+        if hit and now - hit[0] < _DISCOVER_TTL:
+            return hit[1]
+
+    owned = _owned_keys()
+    gmaps = {"movie": tmdb.genre_map("movie"), "tv": tmdb.genre_map("tv")}
+    seen = set()
+    rows = []
+
+    def add_row(title, raw, kind=None):
+        items = []
+        for it in (raw or []):
+            stub = _disc_stub(it, kind, gmaps, owned, seen)
+            if stub:
+                items.append(stub)
+            if len(items) >= limit_per_row:
+                break
+        if items:
+            rows.append({"title": title, "items": items})
+
+    # Lead with what's hot, then the viewer's tastes (or broad popularity), then a
+    # quality shelf. Each call is paced + best-effort; a failure just drops its row.
+    try:
+        add_row("Trending this week", tmdb.trending("week"))
+    except Exception:
+        pass
+    if names:
+        index = {g["name"].lower(): g for g in tmdb.genres_combined()}
+        for name in names:
+            g = index.get(name.lower())
+            if not g:
+                continue
+            raw = []
+            try:
+                if g.get("movie"):
+                    raw += [dict(x, media_type="movie") for x in tmdb.discover("movie", g["movie"])]
+                if g.get("tv"):
+                    raw += [dict(x, media_type="tv") for x in tmdb.discover("tv", g["tv"])]
+            except Exception:
+                raw = []
+            raw.sort(key=lambda x: float(x.get("popularity") or 0), reverse=True)
+            add_row("%s you might like" % name, raw)
+    else:
+        try:
+            add_row("Popular movies", tmdb.discover("movie"), kind="movie")
+            add_row("Popular shows", tmdb.discover("tv"), kind="tv")
+        except Exception:
+            pass
+    try:
+        add_row("Critically acclaimed",
+                tmdb.discover("movie", sort_by="vote_average.desc", min_votes=800), kind="movie")
+    except Exception:
+        pass
+
+    payload = {"enabled": True, "rows": rows, "genres": names}
+    with _discover_lock:
+        if len(_discover_cache) > 40:
+            _discover_cache.clear()
+        _discover_cache[ckey] = (now, payload)
+    return payload
 
 
 def match_key(rec):
@@ -157,6 +422,56 @@ def _stub(kind, item, gmap):
     }
 
 
+def _us_cert(kind, raw):
+    """(certification_string, maturity_level) from TMDB's US content rating, or
+    ('', None) when unknown. Movies carry it under release_dates, TV under
+    content_ratings."""
+    if kind == "movie":
+        for entry in ((raw.get("release_dates") or {}).get("results") or []):
+            if (entry.get("iso_3166_1") or "").upper() != "US":
+                continue
+            for rd in entry.get("release_dates") or []:
+                cert = (rd.get("certification") or "").strip().upper()
+                if cert:
+                    return cert, CERT_MOVIE_LEVEL.get(cert)
+        return "", None
+    for entry in ((raw.get("content_ratings") or {}).get("results") or []):
+        if (entry.get("iso_3166_1") or "").upper() != "US":
+            continue
+        cert = (entry.get("rating") or "").strip().upper()
+        if cert:
+            return cert, CERT_TV_LEVEL.get(cert)
+    return "", None
+
+
+def _trailer(raw):
+    """The best YouTube trailer *key* from TMDB's videos, or '' — preferring an
+    official 'Trailer', then any trailer, then a teaser. YouTube only: it's the one
+    site we can deep-link to (we open it in a new tab — never an embed, so the strict
+    CSP and the no-phone-home default are both untouched)."""
+    vids = ((raw.get("videos") or {}).get("results")) or []
+    yt = [v for v in vids if (v.get("site") or "").lower() == "youtube" and v.get("key")]
+    if not yt:
+        return ""
+
+    def rank(v):
+        t = (v.get("type") or "").lower()
+        kind_score = 0 if t == "trailer" else 1 if t == "teaser" else 2
+        return (kind_score, 0 if v.get("official") else 1)
+
+    yt.sort(key=rank)
+    return yt[0]["key"]
+
+
+def _collection(raw):
+    """{id, name} for the franchise a movie belongs to, or None. Comes free in the
+    base movie detail (belongs_to_collection) — no extra API round-trip."""
+    bc = raw.get("belongs_to_collection")
+    if isinstance(bc, dict) and bc.get("id"):
+        return {"id": int(bc["id"]), "name": bc.get("name") or ""}
+    return None
+
+
 def _compact(kind, tid, raw):
     """The stored detail: feature fields for the recommender + suggestion stubs."""
     title = raw.get("title") or raw.get("name") or ""
@@ -178,6 +493,8 @@ def _compact(kind, tid, raw):
     if not runtime:
         ert = raw.get("episode_run_time") or []
         runtime = ert[0] if ert else None
+
+    cert, maturity = _us_cert(kind, raw)
 
     gmap = tmdb.genre_map(kind)
     seen, recs = set(), []
@@ -206,6 +523,9 @@ def _compact(kind, tid, raw):
         "poster_path": raw.get("poster_path") or "",
         "backdrop_path": raw.get("backdrop_path") or "",
         "runtime": runtime,
+        "cert": cert, "maturity": maturity,    # parental controls
+        "trailer": _trailer(raw),              # YouTube key (deep-link, no embed)
+        "collection": _collection(raw),        # franchise grouping (movies)
         "recs": recs,
     }
 

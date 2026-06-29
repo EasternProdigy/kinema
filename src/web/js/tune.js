@@ -85,6 +85,10 @@ function buildTuneSheet() {
     { html: ICON.flipV, title: "Flip vertically", active: filtersState.flipV, onClick: () => { toggleFlip("v"); buildTuneSheet(); } },
   ]));
   vid.appendChild(ccSeg("Aspect", FIT_MODES.map(m => ({ key: m.id, label: m.label })), filtersState.fit, setFit));
+  // Deinterlace (yadif) — needs a server-side ffmpeg pass, so only offer it when there's an encoder.
+  if (state.session && state.session.ffmpeg && typeof setDeinterlace === "function") {
+    vid.appendChild(_tuneToggle("Deinterlace — smooth interlaced DVD / TV video", state.deinterlace, setDeinterlace));
+  }
   body.appendChild(vid);
 
   /* ---- Audio ---- */

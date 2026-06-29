@@ -115,14 +115,31 @@ checklist). Detail + verification steps live in [LAUNCH_CHECKLIST.md §1](LAUNCH
   titles. The first opt-in *outbound* call (default-off — the app still never phones home). The
   hosted edition could run this as a managed service so users need no TMDB key.
 - **Living-room / "replace Netflix on the couch":** **DLNA/UPnP MediaServer — shipped** (`--dlna`):
-  smart TVs/consoles discover Kadmu and play natively, LAN-local (zero egress). **Next** on this
-  front: Chromecast/Cast (opt-in sender), a 10-foot/TV-remote UI, and **HLS adaptive bitrate**
-  (smooth mobile/remote, reinforcing the cloud P2P bet). Plus deinterlace, skip-credits.
-- **Household / families:** kids profiles, **parental controls** (PIN + a maturity filter off the
-  TMDB content ratings we already fetch), merge `--accounts` + `--profiles` into one household
-  hierarchy, and per-profile library scoping. (None exist yet — the main "families can adopt it" gap.)
-- **Discovery polish (data already cached):** genre browsing + library filters (genre/year/rating),
-  a watch-history view, Top-10/most-watched, trailers, collections/franchises.
+  smart TVs/consoles discover Kadmu and play natively, LAN-local (zero egress). **HLS adaptive
+  bitrate — shipped** (the player's "Auto" quality; on-demand segmenter + vendored hls.js, native
+  on Safari). **10-foot TV mode — shipped** (`--tv` / `V`): a bigger UI with arrow-key / D-pad
+  spatial navigation for driving Kadmu with a remote. **Chromecast — shipped** (opt-in `--cast`):
+  a player cast button; the device pulls bytes off the LAN (zero egress), and it's the one feature
+  that loads a 3rd-party script (Google's Cast SDK), so the CSP is relaxed only when enabled —
+  DLNA stays the privacy-pure default. **Deinterlace (yadif) — shipped** (a Tune-sheet toggle for
+  ripped-DVD / TV-capture combing). **Skip credits — shipped** (chapter-derived, mirrors Skip
+  intro). The living-room story is now complete; remaining couch ideas are smaller polish
+  (subtitle fetch, a dedicated remote pairing flow).
+- **Household / families:** **parental controls — shipped** (per-viewer maturity ceiling from
+  TMDB content ratings, enforced across catalog + search + home rails + My List + title page +
+  a hard 403 on stream/transcode; profile **PIN** prompt in profiles mode, admin-set per-user in
+  accounts mode; *Settings → Parental controls*), **per-profile/user library scoping — shipped**
+  (limit which folders a profile/user sees; enforced across browse + search + rails + a hard 403 on
+  out-of-scope playback; works with or without TMDB), and the **`--accounts` + `--profiles` household
+  merge — shipped** (one login → sub-profiles, each with its own resume/My-List/ratings + parental
+  limits, stored as JSON per account so the accounts DB is untouched — no migration). The household
+  story is now complete.
+- **Discovery polish (data already cached):** genre browsing + filters (genre/decade/sort/watched),
+  a watch-history rail, and Top-10/most-watched — **shipped**. **Trailers — shipped** (a Trailer
+  button that plays in an in-app `youtube-nocookie` lightbox; inert until clicked, cleared on
+  close — needs internet, but no passive phone-home).
+  **Collections/franchises — shipped** (a "More from this collection" rail of the owned titles in
+  a movie's TMDB collection; no extra API call). **Next:** a fuller history timeline view.
 - **Reclaim disk: Archive (shrink) + BYO-storage (offload)** — the "stop letting media eat my
   disk" pair. Both keep model A (the node does the work; our servers never touch the bytes).
   - **Archive a finished title** — a single, bounded, cancelable background ffmpeg worker

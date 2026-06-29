@@ -22,10 +22,11 @@ function archiveSuggestFlag() {
 // Injected into a title's .title-actions by catalog.js renderTitleDetail(d).
 function renderArchiveControls(view, d) {
   const a = d && d.archive;
-  const actions = $(".title-actions", view);
-  if (!actions || !a || !a.available) return;      // no encoder on the server → don't offer it
+  // Prefer the "Options" dropdown; fall back to the actions row if the menu isn't present.
+  const host = $(".title-menu", view) || $(".title-actions", view);
+  if (!host || !a || !a.available) return;          // no encoder on the server → don't offer it
   let box = $(".title-archive", view);
-  if (!box) { box = el("div", "title-archive"); actions.appendChild(box); }
+  if (!box) { box = el("div", "title-archive"); host.appendChild(box); }
   paintArchive(box, view, d, a);
 }
 
@@ -62,12 +63,13 @@ function paintArchive(box, view, d, a) {
     const suggest = fullyWatched(d);
     const partial = a.archived > 0 ? ` (${a.archived}/${a.total})` : "";
     box.className = "title-archive" + (suggest ? " suggest" : "");
+    const hint = suggest ? "You've finished this — reclaim disk, keep it watchable."
+                         : "Re-compress to reclaim disk while keeping it watchable.";
     box.innerHTML =
-      `<button class="btn ghost arch-go" type="button">
+      `<button class="btn ghost arch-go" type="button" title="${escapeHtml(hint)}">
          <span class="arch-ic" data-icon="archive"></span>
          <span>Archive to save space${escapeHtml(partial)}</span>
-       </button>
-       ${suggest ? `<span class="arch-note">You've finished this — reclaim disk, keep it watchable.</span>` : ""}`;
+       </button>`;
     applyIcons(box);
     $(".arch-go", box).onclick = () => startArchive(d, view);
     return;

@@ -41,6 +41,7 @@ function hideSpinner() {
 // Swap the <video> source to a new clip and start playing (shared by every
 // entry point: library, queue prev/next, side-panel, next-up card).
 function loadVideoElement(v) {
+  if (typeof teardownHls === "function") teardownHls();   // drop any adaptive (HLS) session
   currentVideo = v;
   advancing = false;
   clearAbLoop();                   // A-B loop is per clip
@@ -55,7 +56,7 @@ function loadVideoElement(v) {
   document.title = dispName(v) + " · Kadmu";
   state.qOffset = 0;
   state.direct = true;             // assume seekable; confirmed once metadata loads
-  video.src = `/api/stream?path=${enc(v.path)}${audioQuery()}`;   // audio reset to 0 by resetQuality
+  video.src = `/api/stream?path=${enc(v.path)}${audioQuery()}${deintQuery()}`;   // audio/deint reset by resetQuality
   video.load();
 
   const resume = state.progress[v.path];
@@ -545,16 +546,23 @@ function totalDuration() { return state.srcDuration || video.duration || 0; }
 // is the file default and needs no param). Picking a non-default track forces a live
 // remux even for an otherwise-seekable native file — see canSeekNow().
 function audioQuery() { return (state.audio || 0) ? `&audio=${state.audio}` : ""; }
+// Deinterlace (yadif) forces a live ffmpeg pass; rides on every /api/stream + /api/transcode URL.
+function deintQuery() { return state.deinterlace ? "&deint=1" : ""; }
 // The current source is a seekable byte-range file only at original quality, on a
 // native file, playing its default audio track. Anything else is a live stream.
-function canSeekNow() { return state.quality === "original" && state.direct && (state.audio || 0) === 0; }
+function canSeekNow() {
+  // "auto" = HLS VOD: the player has the whole playlist, so seeking is native.
+  if (state.quality === "auto") return true;
+  if (state.deinterlace) return false;          // yadif forces a live remux, even on a native file
+  return state.quality === "original" && state.direct && (state.audio || 0) === 0;
+}
 
 function startStreamAt(pos) {
   state.qOffset = Math.max(0, pos || 0);
   const t = state.qOffset.toFixed(2);
   video.src = state.quality === "original"
-    ? `/api/stream?path=${enc(currentVideo.path)}&t=${t}${audioQuery()}`
-    : `/api/transcode?path=${enc(currentVideo.path)}&height=${state.quality}&t=${t}${audioQuery()}`;
+    ? `/api/stream?path=${enc(currentVideo.path)}&t=${t}${audioQuery()}${deintQuery()}`
+    : `/api/transcode?path=${enc(currentVideo.path)}&height=${state.quality}&t=${t}${audioQuery()}${deintQuery()}`;
   video.load();
   video.onloadedmetadata = () => { applyRate(); applyCaption(pickCaptionIndex()); updateTime(); };
 }
@@ -584,6 +592,7 @@ function updateTime() {
   if ((state.chapters || []).length) highlightChapter();
   checkAbLoop();
   checkSkipIntro();
+  checkSkipCredits();
 }
 function setSpeed(rate) {
   state.rate = rate;
@@ -616,6 +625,7 @@ async function resetQuality(v) {
   state.audio = 0;
   state.audios = [];
   state.chapters = [];
+  state.deinterlace = false;       // deinterlace is per-clip; off on every fresh load
   buildQualityMenu();
   buildAudioMenu();
   renderChapters();
@@ -652,7 +662,8 @@ function buildQualityMenu() {
   const wrap = $("#qualityWrap"), menu = $("#qualityMenu");
   if (!wrap || !menu) return;
   const lower = state.srcHeight ? QUALITY_HEIGHTS.filter(h => h < state.srcHeight) : [];
-  const show = state.session.ffmpeg && state.srcHeight && lower.length > 0;
+  // ffmpeg → "Auto" (adaptive HLS) is always offered; fixed downscales need a known height.
+  const show = state.session.ffmpeg && state.srcHeight;
   wrap.classList.toggle("hidden", !show);
   if (!show) return;
   menu.classList.add("q-menu");
@@ -671,6 +682,7 @@ function buildQualityMenu() {
     menu.appendChild(b);
   };
 
+  row("auto", "Auto", "Adapts to your connection", { t: "ABR", c: "" });
   row("original", "Original", `${qLabel(state.srcHeight)} · best quality`, qTier(state.srcHeight));
   lower.slice().reverse().forEach(h => row(h, qLabel(h), h <= 360 ? "Data saver" : "", qTier(h)));
   updateQualityButton();
@@ -680,10 +692,10 @@ function updateQualityButton() {
   const b = $("#qualityBtn");
   if (!b) return;
   const changed = state.quality !== "original";
-  b.textContent = changed ? qLabel(state.quality)
-    : (state.srcHeight ? qLabel(state.srcHeight) : "Auto");
+  const lbl = state.quality === "auto" ? "Auto" : qLabel(state.quality);
+  b.textContent = changed ? lbl : (state.srcHeight ? qLabel(state.srcHeight) : "Auto");
   b.classList.toggle("changed", changed);
-  b.title = changed ? `Quality · ${qLabel(state.quality)}` : "Video quality";
+  b.title = changed ? `Quality · ${lbl}` : "Video quality";
 }
 
 // Swap to the chosen quality, keeping the current position and play state.
@@ -692,12 +704,19 @@ function setQuality(q) {
   if (q === state.quality || !currentVideo) return;
   const pos = currentPlayPos();
   const playing = !video.paused && !video.ended;
+  const wasAuto = state.quality === "auto";
   state.quality = q;
   buildQualityMenu();
+  if (q === "auto") {
+    if (typeof startHls === "function") startHls(pos);   // adaptive HLS handles its own play()
+    else { state.quality = "original"; buildQualityMenu(); }
+    return;
+  }
+  if (wasAuto && typeof teardownHls === "function") teardownHls();   // leaving adaptive
   if (canSeekNow()) {
     // Native file, default audio: the seekable original maps currentTime 1:1.
     state.qOffset = 0;
-    video.src = `/api/stream?path=${enc(currentVideo.path)}${audioQuery()}`;
+    video.src = `/api/stream?path=${enc(currentVideo.path)}${audioQuery()}${deintQuery()}`;
     video.load();
     video.onloadedmetadata = () => {
       try { if (pos > 0) video.currentTime = pos; } catch {}
@@ -707,6 +726,36 @@ function setQuality(q) {
     };
   } else {
     startStreamAt(pos);                   // live stream (downscale, swapped audio, or non-native) -> ~1-2s
+  }
+  if (playing) video.play().catch(() => {});
+}
+
+// Deinterlace toggle (Tune sheet). yadif runs server-side, so flipping it relaunches the
+// stream from the current position — forcing a live ffmpeg pass even on an otherwise-native
+// file. "Auto" (HLS) carries no filter, so we drop to Original first.
+function setDeinterlace(on) {
+  on = !!on;
+  if (!currentVideo) { state.deinterlace = on; return; }
+  if (on === !!state.deinterlace) return;
+  const pos = currentPlayPos();
+  const playing = !video.paused && !video.ended;
+  state.deinterlace = on;
+  if (state.quality === "auto") {
+    if (typeof teardownHls === "function") teardownHls();
+    state.quality = "original";
+    buildQualityMenu();
+  }
+  if (canSeekNow()) {
+    // deint turned off on a native original: back to the seekable direct file
+    state.qOffset = 0;
+    video.src = `/api/stream?path=${enc(currentVideo.path)}${audioQuery()}${deintQuery()}`;
+    video.load();
+    video.onloadedmetadata = () => {
+      try { if (pos > 0) video.currentTime = pos; } catch {}
+      applyRate(); applyCaption(pickCaptionIndex()); updateTime();
+    };
+  } else {
+    startStreamAt(pos);
   }
   if (playing) video.play().catch(() => {});
 }
@@ -756,7 +805,7 @@ function setAudio(ord) {
   buildAudioMenu();
   if (canSeekNow()) {
     state.qOffset = 0;
-    video.src = `/api/stream?path=${enc(currentVideo.path)}${audioQuery()}`;
+    video.src = `/api/stream?path=${enc(currentVideo.path)}${audioQuery()}${deintQuery()}`;
     video.load();
     video.onloadedmetadata = () => {
       try { if (pos > 0) video.currentTime = pos; } catch {}
@@ -1061,6 +1110,47 @@ function skipIntro() {
   const btn = $("#skipIntro");
   const to = btn ? +btn.dataset.to : 0;
   if (to) { seekTo(to); btn.classList.add("hidden"); }
+}
+
+/* ---------- skip credits (derived from chapters) ----------
+   Mirrors skip-intro: surfaces a "Skip credits" button while you're inside a
+   closing-credits / ending chapter (named so). Clicking it jumps past the
+   credits — straight to what's up next if the credits run to the very end, else
+   to where that chapter ends. Chapter-based only, so it never guesses wrongly. */
+const OUTRO_RE = /credit|ending|outro|end title|closing|\bend\b/i;
+function currentCreditsEnd() {
+  const ch = state.chapters || [];
+  if (ch.length < 2) return null;
+  const pos = currentPlayPos();
+  const total = totalDuration();
+  for (let i = 0; i < ch.length; i++) {
+    const c = ch[i];
+    const end = (i + 1 < ch.length) ? ch[i + 1].start : (c.end || total || null);
+    if (end == null) continue;
+    if (pos >= c.start - 0.01 && pos < end - 0.3) {
+      // Never treat the very first chapter as credits (that's the cold open / intro).
+      if (i > 0 && OUTRO_RE.test(c.title || "")) return end;
+      return null;
+    }
+  }
+  return null;
+}
+function checkSkipCredits() {
+  const btn = $("#skipCredits");
+  if (!btn) return;
+  const end = currentVideo ? currentCreditsEnd() : null;
+  if (end != null) { btn.dataset.to = String(end); btn.classList.remove("hidden"); }
+  else btn.classList.add("hidden");
+}
+function skipCredits() {
+  const btn = $("#skipCredits");
+  const to = btn ? +btn.dataset.to : 0;
+  const total = totalDuration();
+  if (btn) btn.classList.add("hidden");
+  // Credits running to the very end → hand off to the next episode/movie if there is
+  // one; otherwise just seek past them (lands at the end, where autoplay takes over).
+  if (total && to >= total - 1.5 && state.pendingNext) { confirmNext(); return; }
+  if (to) seekTo(to);
 }
 
 /* ---------- storyboard scrub previews (sprite sheet) ---------- */

@@ -39,6 +39,7 @@ CACHE_DIR = STATE_DIR / "cache" / "thumbs"
 REMUX_DIR = STATE_DIR / "cache" / "remux"
 STORYBOARD_DIR = STATE_DIR / "cache" / "storyboard"   # seek-bar scrub sprite sheets
 SUBS_DIR = STATE_DIR / "cache" / "subs"   # extracted embedded subtitle tracks (.vtt)
+HLS_DIR = STATE_DIR / "cache" / "hls"     # on-demand HLS segments (.ts), pruned like remux
 
 # Hard ceiling on the prepared-video cache (remux + quality copies). Whenever a
 # new file is cached we evict the least-recently-used ones until the folder is
@@ -164,6 +165,7 @@ PLAYLISTS_PATH = DATA_DIR / "playlists.json"
 MYLIST_PATH = DATA_DIR / "mylist.json"
 RATINGS_PATH = DATA_DIR / "ratings.json"     # per-show / per-movie thumbs-up/down
 RECO_PREFS_PATH = DATA_DIR / "reco_prefs.json"  # per-viewer recommendation weight dials
+PREFS_PATH = DATA_DIR / "prefs.json"         # per-viewer general prefs (genres, onboarding, display)
 META_CACHE_PATH = DATA_DIR / "meta_cache.json"
 PROFILES_PATH = DATA_DIR / "profiles.json"   # opt-in per-viewer id -> {"name"}
 DB_PATH = DATA_DIR / "kadmu.db"              # accounts mode (--accounts): users + per-user state
@@ -187,6 +189,26 @@ NATIVE_ACODECS = {"aac", "mp3", "opus", "vorbis", "flac"}
 
 # A video counts as "watched"/finished once you're at least this far through it.
 WATCHED_FRAC = 0.95
+
+# --------------------------------------------------------------------------- #
+# Parental controls — a per-viewer maturity ceiling. Each title is mapped to a
+# level from its TMDB certification (cached by the enricher); a viewer only sees
+# titles at/below their ceiling. MATURITY_MAX (adults) = no limit (the default).
+# --------------------------------------------------------------------------- #
+MATURITY_MAX = 4
+# level -> (short label, the ratings it covers) for the settings UI.
+MATURITY_LEVELS = [
+    (0, "Little kids", "G · TV-Y · TV-G"),
+    (1, "Older kids", "PG · TV-Y7 · TV-PG"),
+    (2, "Teens", "PG-13 · TV-14"),
+    (3, "Mature", "R · TV-MA"),
+    (4, "Adults (no limit)", "NC-17 · unrated"),
+]
+# US certification -> level. Anything not listed is treated as "unrated" (level None),
+# which a kid ceiling hides by default (safer) and an adult ceiling shows.
+CERT_MOVIE_LEVEL = {"G": 0, "PG": 1, "PG-13": 2, "R": 3, "NC-17": 4}
+CERT_TV_LEVEL = {"TV-Y": 0, "TV-Y7": 0, "TV-Y7-FV": 0, "TV-G": 0,
+                 "TV-PG": 1, "TV-14": 2, "TV-MA": 3}
 
 MIME = {
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",

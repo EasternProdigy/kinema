@@ -24,6 +24,7 @@ const state = {
   srcDuration: null,      // full duration of the source (a transcoded stream only knows its own)
   qOffset: 0,             // seconds into the source where the current transcoded stream began
   direct: true,           // original quality is a seekable file? false = a live remux/transcode stream
+  deinterlace: false,     // yadif deinterlace on (Tune toggle) — forces a live ffmpeg pass
   audio: 0,               // selected audio-track ordinal (0 = file default)
   audios: [],             // [{ord,codec,lang,label,default}] audio tracks of the playing file
   panel: null,            // { path, data } currently shown in the side panel
@@ -50,6 +51,12 @@ const state = {
   keyHud: true,           // flash the pressed shortcut in the center of the screen
   browseFiles: false,     // root view: false = Shows/Movies catalog, true = classic folder browser
   catalogHasItems: false, // the catalog returned at least one show or movie (drives the home layout)
+  homeFilter: "all",      // home tab: all | show | movie | mylist  (Netflix-style top nav)
+  catalog: null,          // cached {shows, movies} from /api/catalog (re-filtered on tab switch, no refetch)
+  reco: null,             // cached /api/recommendations payload
+  history: null,          // cached /api/history items
+  discover: null,         // cached /api/discover payload (empty-library "what to watch")
+  discoverShown: false,   // the discover home is currently rendered (no owned catalog yet)
 };
 
 /* ===================== thumbnails (lazy) ===================== */

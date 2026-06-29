@@ -17,7 +17,7 @@ from .const import (
     INDEX_REFRESH, INDEX_MAX_VIDEOS, natural_key, _io_lock,
 )
 from .store import (
-    real_roots, resolve_within_roots, owning_root, load_progress, _migrate_progress,
+    real_roots, viewer_roots, resolve_within_roots, owning_root, load_progress, _migrate_progress,
 )
 from .media import (
     probe_meta, browser_playable, folder_cover,
@@ -217,7 +217,7 @@ def list_directory(path: Path):
 def list_roots():
     out = []
     wdirs = watched_dirs()
-    for root in real_roots():
+    for root in viewer_roots():        # per-viewer library scoping (parental controls)
         out.append({
             "name": root.name or str(root),
             "path": str(root),
