@@ -104,9 +104,23 @@ def _cache_for_asset():
     return IMMUTABLE_CACHE if rt.CDN else "no-cache"
 
 
+# A per-process cache-bust token: the shell's asset URLs carry ?v=<version>.<boot>, so a
+# server start (re)loads the current JS/CSS in every browser on its next normal refresh —
+# no hard-refresh, no stale-cache mystery. In-session edits stay fresh via the no-cache
+# header on /js (so "edit a file, refresh" still works without a restart).
+try:
+    _BOOT_TAG = str(int(time.time()))
+except Exception:
+    _BOOT_TAG = "0"
+
+
+def _asset_version() -> str:
+    return f"{APP_VERSION}.{_BOOT_TAG}"
+
+
 def _version_shell_html(data: bytes) -> bytes:
-    """Append ?v=APP_VERSION to the shell's local asset refs (CDN mode only)."""
-    return _VERSIONABLE.sub(rf'\1="\2?v={APP_VERSION}"', data.decode("utf-8")).encode("utf-8")
+    """Append ?v=<version>.<boot> to the shell's local asset refs (js/style/qr)."""
+    return _VERSIONABLE.sub(rf'\1="\2?v={_asset_version()}"', data.decode("utf-8")).encode("utf-8")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -594,8 +608,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         data = fp.read_bytes()
         is_shell = route in ("/", "/index.html")
-        if is_shell and rt.CDN:
-            data = _version_shell_html(data)         # ?v=APP_VERSION on asset refs (CDN busting)
+        if is_shell:
+            data = _version_shell_html(data)         # ?v=<version>.<boot> on asset refs — kills stale-JS caching
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
