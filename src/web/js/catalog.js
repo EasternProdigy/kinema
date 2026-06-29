@@ -21,6 +21,7 @@ async function renderCatalog() {
   const movies = (cat && cat.movies) || [];
   state.catalog = { shows, movies };
   state.catalogHasItems = !!(shows.length || movies.length);
+  state.discover = null;                     // refetch discovery once per fresh catalog load
 
   buildCatalogBar(shows.concat(movies));     // genre + decade options, wired controls
   if (typeof renderHeroCarousel === "function") renderHeroCarousel();  // featured billboard
@@ -29,6 +30,9 @@ async function renderCatalog() {
   renderGenreRows();                         // one rail per genre of titles you own
   renderHistory();                           // "Recently watched" rail
   renderRecommendations();                   // taste-based rows above the full grids
+  // Always-on discovery: TMDB picks to watch next, beneath the owned catalog — seeded by
+  // the library's taste, so it's never an empty home and sharpens as the library grows.
+  if (state.catalogHasItems && typeof renderDiscover === "function") renderDiscover(true);
   fitRailsSoon();                            // show scroll arrows only where a rail overflows
   return state.catalogHasItems;
 }
@@ -181,6 +185,9 @@ function applyHomeFilter(filter) {
   if (typeof paintRecent === "function") paintRecent();
   if (typeof renderMyList === "function") renderMyList();
   applyCatalogView();
+  // Re-render compact discovery so it follows the active tab (movie / show / all).
+  if (f !== "mylist" && typeof renderDiscover === "function") renderDiscover(true);
+  else { const ds = $("#discoverSection"); if (ds) ds.classList.add("hidden"); }
   fitRailsSoon();
   window.scrollTo(0, 0);
 }

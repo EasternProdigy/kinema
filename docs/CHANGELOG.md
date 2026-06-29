@@ -6,6 +6,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Always-on recommendations — the home is never empty.** Discovery rails (TMDB picks
+  to watch next) now show **beneath your own catalog**, not only when the library is empty —
+  so a brand-new or tiny library still has something to browse. They're **seeded by your
+  library's own taste** (the genres you already own + any picks), so the suggestions sharpen
+  as the collection grows, and they **follow the active tab** (the Movies / TV Shows tabs show
+  movie / show picks instead of sitting empty). Needs the opt-in TMDB layer; off for kids.
 - **10-foot TV mode — drive Kadmu with a remote.** A bigger interface plus **arrow-key /
   D-pad spatial navigation**: arrows move a high-contrast focus ring to the nearest card or
   button, Enter opens it; inside the player the existing arrow shortcuts (seek / volume) keep

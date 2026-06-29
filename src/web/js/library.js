@@ -54,10 +54,10 @@ async function loadLibrary(path, opts = {}) {
       const hasCatalog = await renderCatalog();   // Shows + Movies poster grids
       $("#homeNav")?.classList.toggle("hidden", !hasCatalog);   // Netflix-style tabs only with a catalog
       if (hasCatalog) {
-        // the catalog supersedes the raw top-level folder/file lists
+        // the catalog supersedes the raw top-level folder/file lists; discovery rails
+        // (rendered by renderCatalog) stay on beneath it as "more to explore".
         $("#folderSection")?.classList.add("hidden");
         $("#videoSection")?.classList.add("hidden");
-        $("#discoverSection")?.classList.add("hidden");
         renderHomeBar(false);
       } else {
         $("#homeBar")?.classList.add("hidden");

@@ -1210,7 +1210,11 @@ class Handler(BaseHTTPRequestHandler):
             # Seeded by the viewer's picked genres; off for maturity-restricted viewers
             # (unowned titles carry no certification to filter on) and without a key.
             ok = discovery.external_suggestions_ok()
-            data = enrich.discover_catalog(preferred_genres()) if ok else {"enabled": tmdb.enabled(), "rows": [], "genres": []}
+            # Seed the rails with the viewer's picked genres AND the genres their library
+            # already leans into — so suggestions are present from title one and sharpen
+            # as the collection grows ("recommendations always, better as we have more").
+            seed = list(dict.fromkeys(list(preferred_genres() or []) + enrich.owned_genres()))
+            data = enrich.discover_catalog(seed) if ok else {"enabled": tmdb.enabled(), "rows": [], "genres": []}
             data["ok"] = ok
             data["onboarded"] = is_onboarded()
             return self._send_json(data)

@@ -167,6 +167,26 @@ def _owned_keys():
     return out
 
 
+def owned_genres(limit=6):
+    """The most common genres across the library's TMDB-matched titles, most-first.
+    Tilts the discover rails toward what the collection already leans into, so the
+    suggestions sharpen as the library grows. [] when nothing's matched / TMDB off."""
+    if not tmdb.enabled():
+        return []
+    cache = load_cache()
+    tally = {}
+    for rec in load_match().values():
+        k = match_key(rec)
+        if k in (None, "none"):
+            continue
+        d = cache.get(k)
+        if isinstance(d, dict):
+            for g in (d.get("genres") or []):
+                if g:
+                    tally[g] = tally.get(g, 0) + 1
+    return [g for g, _ in sorted(tally.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
+
+
 def search_external(query, limit=12):
     """TMDB titles matching `query` that aren't in the library — for the search bar's
     'not in your library' section. Cached; returns [] when the metadata layer is off."""
