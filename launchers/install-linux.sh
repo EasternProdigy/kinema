@@ -5,11 +5,13 @@
 #   bash launchers/install-linux.sh            # tab   (default)
 #   bash launchers/install-linux.sh app        # dedicated Kadmu window
 #   bash launchers/install-linux.sh kiosk      # fullscreen cinema mode
+#   bash launchers/install-linux.sh dev        # app window, live from this checkout
+#                                              # (backend auto-restarts on save)
 set -e
 MODE="${1:-tab}"
 case "$MODE" in
-  tab|app|kiosk) ;;
-  *) echo "Usage: install-linux.sh [tab|app|kiosk]"; exit 1 ;;
+  tab|app|kiosk|dev) ;;
+  *) echo "Usage: install-linux.sh [tab|app|kiosk|dev]"; exit 1 ;;
 esac
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,6 +21,8 @@ mkdir -p "$APPS"
 FLAG=""
 [ "$MODE" = "app" ]   && FLAG=" --app"
 [ "$MODE" = "kiosk" ] && FLAG=" --kiosk"
+LAUNCHER="$DIR/launchers/kadmu.sh"
+[ "$MODE" = "dev" ] && LAUNCHER="$DIR/launchers/kadmu-dev.sh"
 
 ICON="$DIR/launchers/kadmu.png"
 [ -f "$ICON" ] || ICON="$DIR/src/web/favicon.svg"
@@ -30,14 +34,23 @@ Type=Application
 Name=Kadmu
 GenericName=Personal cinema
 Comment=Watch your own video library in a browser
-Exec=bash "$DIR/launchers/kadmu.sh"$FLAG
+Exec=bash "$LAUNCHER"$FLAG
 Icon=$ICON
 Terminal=false
 Categories=AudioVideo;Player;
 StartupNotify=false
 EOF
+if [ "$MODE" = "dev" ]; then
+  cat >> "$DESKTOP" <<EOF
+Actions=stop;
 
-chmod +x "$DIR/launchers/kadmu.sh" "$DESKTOP" 2>/dev/null || true
+[Desktop Action stop]
+Name=Stop Kadmu dev server
+Exec=bash "$LAUNCHER" --stop
+EOF
+fi
+
+chmod +x "$LAUNCHER" "$DESKTOP" 2>/dev/null || true
 update-desktop-database "$APPS" >/dev/null 2>&1 || true
 
 echo "Installed: $DESKTOP   (mode: $MODE)"

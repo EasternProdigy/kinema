@@ -154,7 +154,9 @@ def _launch_browser(port):
             try:
                 profile = STATE_DIR / "app-profile"
                 profile.mkdir(parents=True, exist_ok=True)
-                cmd = [ff, "--no-remote", "--profile", str(profile),
+                # No --no-remote: a second launch hands off to the already-open
+                # Kadmu window (Firefox remotes per profile) instead of erroring.
+                cmd = [ff, "--profile", str(profile),
                        "--kiosk" if rt.LAUNCH_MODE == "kiosk" else "--new-window", url]
                 subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return
